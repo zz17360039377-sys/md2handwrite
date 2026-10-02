@@ -4,7 +4,7 @@
 # ============================================================
 
 font:
-  path: fonts/XiaolaiSC-Regular.ttf    # 手写字体 TTF（相对本脚本目录）
+  path: fonts/XiaolaiSC-Regular.ttf     # 默认随包开源字体（小赖 SC，OFL）    # 手写字体 TTF（相对本脚本目录）
   em: 27.6                                # 正文字号（显示像素）
   line_height: 1.2                        # 行距倍数
   heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
@@ -44,9 +44,9 @@ paper:
   grid_cell: 24                           # 网格间距
   grid_line: '#d9d9d9'                    # 网格线颜色
   field: { block: 380, amp: 12 }          # 整页弯曲场：块大小 / 幅度
-  dent: { depth: [5, 8], pull: 0.1 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
+  dent: { depth: [3, 4], pull: 0.05 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
   bands:                                  # 竖向阴影带
-    count: [1, 3]
+    count: [0, 1]
     width: [90, 350]
     gray: [230, 240]
     tilt_deg: [-7, 7]
