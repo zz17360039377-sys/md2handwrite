@@ -317,9 +317,11 @@ class WarpField:
         self.oy = [[rng.uniform(-amp, amp) for _ in range(self.ny)] for _ in range(self.nx)]
         self.dents = []                          # 阴影带凹陷：向内收 + 向下压
 
-    def add_dent(self, cx, half_w, depth, pull):
-        """在阴影带位置加一个凹陷：cx 带中心，half_w 半宽，depth 下压深度，pull 向内收拢系数"""
-        self.dents.append({'cx': cx, 'hw': half_w, 'depth': depth, 'pull': pull})
+    def add_dent(self, cx, half_w, depth, pull, tilt_deg=0.0):
+        """在阴影带位置加一个凹陷：cx 带中心，half_w 半宽，depth 下压深度，
+        pull 向内收拢系数，tilt_deg 与阴影带一致的随机倾角"""
+        self.dents.append({'cx': cx, 'hw': half_w, 'depth': depth, 'pull': pull,
+                           'rot': math.radians(tilt_deg)})
 
     def sample(self, x, y):
         fx, fy = x / self.block, y / self.block
@@ -331,12 +333,14 @@ class WarpField:
               + self.ox[i][j + 1] * (1 - ux) * uy + self.ox[i + 1][j + 1] * ux * uy)
         dy = (self.oy[i][j] * (1 - ux) * (1 - uy) + self.oy[i + 1][j] * ux * (1 - uy)
               + self.oy[i][j + 1] * (1 - ux) * uy + self.oy[i + 1][j + 1] * ux * uy)
-        for dn in self.dents:                    # 阴影带凹陷：中心向内收、整带向下压，边缘平滑
-            t = abs(x - dn['cx']) / dn['hw']
+        for dn in self.dents:                    # 阴影带凹陷：沿带轴（含随机倾角）向内收、向下压
+            ct, st = math.cos(dn['rot']), math.sin(dn['rot'])
+            u = (x - dn['cx']) * ct + y * st            # 旋到带轴向
+            t = abs(u) / dn['hw']
             if t < 1.0:
                 wgt = (1 - t * t) ** 2
-                dx += (dn['cx'] - x) * dn['pull'] * wgt
-                dy += dn['depth'] * wgt
+                dx += -u / dn['hw'] * dn['pull'] * dn['hw'] * wgt * ct
+                dy += -u / dn['hw'] * dn['pull'] * dn['hw'] * wgt * st + dn['depth'] * wgt
         return dx, dy
 
 class Handwriter(HTMLParser):
@@ -509,10 +513,10 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         trot = rng_band.uniform(*bands.get('tilt_deg', [-7, 7]))
         field.add_dent(bx + bw / 2, bw / 2,
                        rng_band.uniform(*dent_cfg.get('depth', [14, 22])),
-                       float(dent_cfg.get('pull', 0.3)))
+                       float(dent_cfg.get('pull', 0.3)), trot)
         band_html += (f'<div style="position:absolute;z-index:-3;top:-15%;left:{bx:.0f}px;'
                       f'width:{bw:.0f}px;height:130%;'
-                      f'background:linear-gradient(90deg, #ffffff 0%, #{g:02x}{g:02x}{g:02x} 45%, #{g:02x}{g:02x}{g:02x} 62%, #ffffff 100%);'
+                      f'background:linear-gradient(90deg, #ffffff 0%, #{g:02x}{g:02x}{g:02x} {rng_band.uniform(0.35, 0.5) * 100:.0f}%, #{g:02x}{g:02x}{g:02x} {rng_band.uniform(0.55, 0.75) * 100:.0f}%, #ffffff 100%);'
                       f'-webkit-transform:rotate({trot:.1f}deg);transform:rotate({trot:.1f}deg);"></div>')
     ASSETS.mkdir(parents=True, exist_ok=True)
     grid_png = ASSETS / f'grid_{md_path.stem}.png'

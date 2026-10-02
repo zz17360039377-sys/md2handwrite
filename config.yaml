@@ -46,7 +46,7 @@ paper:
   field: { block: 380, amp: 12 }          # 整页弯曲场：块大小 / 幅度
   dent: { depth: [3, 4], pull: 0.05 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
   bands:                                  # 竖向阴影带
-    count: [0, 1]
+    count: [0, 2]
     width: [90, 350]
     gray: [230, 240]
     tilt_deg: [-7, 7]
