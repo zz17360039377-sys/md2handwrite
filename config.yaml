@@ -48,7 +48,7 @@ paper:
   bands:                                  # 竖向阴影带
     count: [0, 2]
     width: [90, 350]
-    gray: [230, 240]
+    gray: [236, 244]
     tilt_deg: [-7, 7]
   noise:                                  # 扫描杂质层（永远在网格与文字下方）
     grain_enabled: false                  # 高斯噪点颗粒：默认关闭（太重）
