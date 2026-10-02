@@ -1,0 +1,106 @@
+# ============================================================
+# 手写笔记渲染配置 —— 修改保存后重新运行即可生效
+# 命令：python3 md2handwrite.py 笔记.md [-o 输出目录]
+# ============================================================
+
+font:
+  path: fonts/XiaolaiSC-Regular.ttf     # 默认随包开源字体（小赖 SC，OFL）    # 手写字体 TTF（相对本脚本目录）
+  em: 27.6                                # 正文字号（显示像素）
+  line_height: 1.2                        # 行距倍数
+  heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
+
+ink:
+  black: [10, 10, 10]                     # 黑墨 RGB
+  red: [200, 20, 20]                      # 红笔 RGB（md 里用 **加粗** 标红）
+  alpha_jitter: [0.82, 1.0]               # 墨色深浅随机范围
+
+glyph:                                    # 逐字渲染
+  canvas: 256                             # 字形画布边长（像素）
+  font_px: 192                            # 画布内字体渲染字号
+  jitter:                                 # 整字随机仿射
+    size: [0.94, 1.06]                    # 字号随机范围
+    red_boost: 1.16                       # 红笔字放大倍数（不加粗）
+    dy_em: [-0.05, 0.05]                  # 基线上下漂移
+    rotate_deg: [-2.0, 2.0]               # 整字旋转
+    scale_x: [0.88, 1.12]                 # 横向独立缩放
+    scale_y: [0.90, 1.10]                 # 纵向独立缩放
+    skew_deg: [-2.0, 2.0]                 # 剪切
+  quarter_affine:                         # 每字随机 1/4 区域强仿射
+    enabled: true
+    scale: [0.65, 1.4]                    # 区域内拉伸压缩
+    rotate_deg: [-12, 12]
+    shift_x: [-14, 14]
+    shift_y: [-12, 12]
+    feather_blur: 8                       # 羽化边缘
+  bend_clamp_ratio: 0.45                  # 纸面弯曲差分限幅（占 mesh 格比例）
+
+paper:
+  width: 658                              # 纸面宽度（显示像素）
+  grid_cell: 24                           # 网格间距
+  grid_line: '#d9d9d9'                    # 网格线颜色
+  field: { block: 380, amp: 14 }          # 整页弯曲场：块大小 / 幅度
+  dent: { depth: [7, 11], pull: 0.15 }    # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
+  bands:                                  # 竖向阴影带
+    count: [1, 3]
+    width: [90, 350]
+    gray: [230, 240]
+    tilt_deg: [-7, 7]
+  noise:                                  # 扫描杂质层（永远在网格与文字下方）
+    grain_enabled: false                  # 高斯噪点颗粒：默认关闭（太重）
+    gauss_sigma: 25                       # 开启时的强度（越大颗粒越明显）
+    grain_contrast: 1.2
+    grain_alpha: 4.0
+    strips_enabled: false                 # 灰色长条：已按要求关闭
+    stains:                               # 污渍
+      count: [1, 2]
+      radius: [60, 160]
+      ring_prob: 0.4                      # 带圆环渍（咖啡圈）概率
+
+typos:
+  enabled: true                           # 手写笔误（代码与命令不出错）
+  rate: 0.008                             # 每字概率，约每页 1~5 个
+  pairs:                                  # 形近字为主：笔画结构类似
+    的: 得
+    在: 再
+    做: 作
+    令: 今
+    点: 占
+    内: 肉
+    问: 间
+    见: 贝
+    线: 浅
+    构: 沟
+    析: 折
+    段: 断
+    端: 瑞
+    删: 册
+    换: 焕
+    消: 销
+    释: 泽
+    环: 坏
+    待: 侍
+    遍: 编
+    般: 船
+    优: 忧
+    版: 板
+    列: 烈
+    拆: 折
+    名: 各
+    备: 各
+    太: 大
+    土: 士
+    目: 日
+    块: 快
+    以: 已
+    须: 需
+    式: 试
+    权: 全
+    行: 形
+
+page:
+  margins_mm: { top: 16, bottom: 18, left: 18, right: 18 }
+  wrap_x: 600                             # 估算自动换行位置
+
+watermark: assets/cs_watermark.png        # 右下角水印（虚线框只包水印）；留空则不盖印
+page_number_font: Helvetica               # 页码字体（正常印刷字体）
+output_dir: 手写版                         # 默认输出目录
