@@ -133,13 +133,11 @@ def render_char_png(token, color, variant, field, gx, gy):
     gx/gy = 字在纸面坐标系里的近似位置。缺字返回 (None,0,0)。按位置量化缓存。"""
     from PIL import Image, ImageDraw, ImageChops, ImageFilter
     canvas = int(C('glyph', 'canvas', default=256))
-    key = hashlib.md5(f'{token}|{color}|{variant}|{int(gx//40)}|{int(gy//40)}'.encode()).hexdigest()[:10]
+    import uuid as _uuid
+    key = hashlib.md5(f'{token}|{color}|{variant}|{_uuid.uuid4().hex}'.encode()).hexdigest()[:12]
     CHAR_DIR.mkdir(parents=True, exist_ok=True)
     path = CHAR_DIR / f'{key}.png'
     s_disp = (1.32 * EM) / canvas
-    if path.exists():
-        dcx, dcy = field.sample(gx + 14 * s_disp, gy + 18 * s_disp)
-        return path, dcx, dcy
     rng = random.Random(key)
     font = _get_font(int(C('glyph', 'font_px', default=192)))
     try:
@@ -209,13 +207,13 @@ def render_char_png(token, color, variant, field, gx, gy):
     bp = int(ink_cfg.get('bleed_px', 1))
     if bp:                                   # 渗透：笔画轻微洇开
         A = A.filter(ImageFilter.MaxFilter(1 + 2 * bp))
-    ts = float(ink_cfg.get('texture_strength', 0.55))
+    ts = float(ink_cfg.get('texture_strength', 0.75))
     if ts > 0:                               # 纸纹穿透：笔画内部墨色不均
-        g = Image.effect_noise((wpx, Hh), int(ink_cfg.get('texture_sigma', 50)))
-        g = g.filter(ImageFilter.GaussianBlur(2))
+        g = Image.effect_noise((wpx, Hh), int(ink_cfg.get('texture_sigma', 60)))
+        g = g.filter(ImageFilter.GaussianBlur(int(ink_cfg.get('texture_blur', 1))))
         lut = [int(255 - max(0, i - 128) / 128 * 255 * ts) for i in range(256)]
         A = ImageChops.multiply(A, g.point(lut))
-    pg = float(ink_cfg.get('pressure', 0.15))
+    pg = float(ink_cfg.get('pressure', 0.2))
     if pg > 0:                               # 笔压：斜向渐变，一笔内轻重不同
         grad = Image.linear_gradient('L').rotate(90).resize((wpx, Hh))
         lut2 = [int(255 - i / 255 * 255 * pg) for i in range(256)]
@@ -410,7 +408,7 @@ class Handwriter(HTMLParser):
             if TYPO_ON and not self.skip and len(tok) == 1 and tok in TYPO and self.rng.random() < TYPO_RATE:
                 tok = TYPO[tok]
             color = 'red' if self.red else 'black'
-            variant = self.rng.randrange(2)
+            variant = self.rng.randrange(int(C('glyph', 'variants', default=3)))
             adv = len(tok) * EM * (0.55 if len(tok) > 1 else 0.9)
             p, dcx, dcy = render_char_png(tok, color, variant, self.field,
                                           30 + self.cx, 26 + self.cy)

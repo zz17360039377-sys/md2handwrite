@@ -48,6 +48,37 @@ python3 md2handwrite.py [md文件或目录] [-o 输出目录] [-c 配置文件]
         --no-stamp          跳过水印与页码盖印
 ```
 
+## 参数调优指南
+
+config.yaml 常用参数速查（改完保存，重跑即可生效）：
+
+| 想要的效果 | 改哪里 |
+|---|---|
+| 字更大 / 更小 | font.em（正文字号）；font.heading_px 各级标题 |
+| 行更密 / 更疏 | font.line_height（1.2 为紧凑笔记风） |
+| 字更"飘" / 更"稳" | glyph.jitter.size 与 rotate_deg 范围调大 / 调小 |
+| 字的局部变形更狠 | glyph.quarter_affine.scale 偏离 1 越远越狠 |
+| 墨色更深 / 更浅 | ink.black 调深；ink.alpha_jitter 上限调低 |
+| 纸更皱 / 更平 | paper.field.amp（建议 8~20） |
+| 折痕更深 / 更浅 | paper.dent.depth（3~8 为自然范围） |
+| 阴影带多少 | paper.bands.count（[0,2] = 每页 0~2 条） |
+| 阴影深浅 | paper.bands.gray（越接近 255 越淡） |
+| 纸更脏 | paper.noise.grain_enabled: true + gauss_sigma 调大 |
+| 污渍多少 | paper.noise.stains.count |
+| 错别字频率 | typos.rate（0.008 ≈ 每页 1~5 个） |
+| 不要错别字 | typos.enabled: false |
+| 换一批笔误 / 弯曲 / 溅点 | 命令行 --seed-salt 随便输个文本 |
+| 不要水印页码 | --no-stamp 或 config.yaml 的 watermark 留空 |
+
+## FAQ
+
+- **有缺字 / 方块？** 字体缺字会回退到霞鹜文楷栈；换覆盖更全的字体或更新 font.path
+- **重新生成结果一模一样？** 同一文件名 + 相同 config 的结果是固定的；想变化加 `--seed-salt`
+- **笔误出现在命令里了？** 不会——代码块自动排除笔误
+- **首次生成很慢？** 正在构建字形图片缓存（assets/chars/），之后同字符直接复用；删除该目录可强制重绘
+- **背景太脏 / 太干净？** 三个旋钮：noise.grain_enabled、noise.stains.count、bands.count
+- **页码能换字体吗？** page_number_font 任意 fontconfig 字体（默认 Helvetica，刻意不用手写体）
+
 ## 作为 Agent Skill 使用
 
 本目录符合 Agent Skill 规范（SKILL.md + 资源）。把 `handwrite-notes/`

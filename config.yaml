@@ -11,12 +11,17 @@ font:
 
 ink:
   black: [10, 10, 10]                     # 黑墨 RGB
-  red: [200, 20, 20]                      # 红笔 RGB（md 里用 **加粗** 标红）
-  alpha_jitter: [0.82, 1.0]               # 墨色深浅随机范围
+  red: [160, 15, 15]                      # 红笔 RGB（md 里用 **加粗** 标红）
+  alpha_jitter: [0.78, 1.0]
+  texture_strength: 0.75
+  texture_sigma: 60
+  texture_blur: 1
+  pressure: 0.2               # 墨色深浅随机范围
 
 glyph:                                    # 逐字渲染
   canvas: 256                             # 字形画布边长（像素）
-  font_px: 192                            # 画布内字体渲染字号
+  font_px: 192
+  variants: 3                            # 画布内字体渲染字号
   jitter:                                 # 整字随机仿射
     size: [0.94, 1.06]                    # 字号随机范围
     red_boost: 1.16                       # 红笔字放大倍数（不加粗）
@@ -35,9 +40,10 @@ glyph:                                    # 逐字渲染
   bend_clamp_ratio: 0.45                  # 纸面弯曲差分限幅（占 mesh 格比例）
   ink:                                    # 墨迹入纸：让字"长"在纸上而不是漂在上面
     bleed_px: 1                           # 渗透毛边（笔画洇开像素数，0 关闭）
-    texture_strength: 0.55                # 纸纹穿透强度（笔画内部墨色不均，0~1）
-    texture_sigma: 50                     # 纸纹噪声尺度
-    pressure: 0.15                        # 笔压渐变（一笔内轻重不同，0~1）
+    texture_strength: 0.75                # 纸纹穿透强度（笔画内部墨色不均，0~1）
+    texture_sigma: 60                     # 纸纹噪声尺度
+    texture_blur: 1                       # 纸纹模糊（越小颗粒越细）
+    pressure: 0.2                         # 笔压渐变（一笔内轻重不同，0~1）
 
 paper:
   width: 658                              # 纸面宽度（显示像素）
