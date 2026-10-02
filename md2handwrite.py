@@ -317,11 +317,12 @@ class WarpField:
         self.oy = [[rng.uniform(-amp, amp) for _ in range(self.ny)] for _ in range(self.nx)]
         self.dents = []                          # 阴影带凹陷：向内收 + 向下压
 
-    def add_dent(self, cx, half_w, depth, pull, tilt_deg=0.0):
+    def add_dent(self, cx, half_w, depth, pull, tilt_deg=0.0, y0=None, y1=None):
         """在阴影带位置加一个凹陷：cx 带中心，half_w 半宽，depth 下压深度，
-        pull 向内收拢系数，tilt_deg 与阴影带一致的随机倾角"""
+        pull 向内收拢系数，tilt_deg 与阴影带一致的随机倾角，
+        y0/y1 凹陷作用的页面 y 范围（阴影带只在所属页面生效）"""
         self.dents.append({'cx': cx, 'hw': half_w, 'depth': depth, 'pull': pull,
-                           'rot': math.radians(tilt_deg)})
+                           'rot': math.radians(tilt_deg), 'y0': y0, 'y1': y1})
 
     def sample(self, x, y):
         fx, fy = x / self.block, y / self.block
@@ -334,11 +335,18 @@ class WarpField:
         dy = (self.oy[i][j] * (1 - ux) * (1 - uy) + self.oy[i + 1][j] * ux * (1 - uy)
               + self.oy[i][j + 1] * (1 - ux) * uy + self.oy[i + 1][j + 1] * ux * uy)
         for dn in self.dents:                    # 阴影带凹陷：沿带轴（含随机倾角）向内收、向下压
+            F = 60.0                             # 凹陷只在所属页面 y 范围内生效，边缘 60px 渐入渐出
+            if dn['y0'] is not None:
+                if y < dn['y0'] - F or y > dn['y1'] + F:
+                    continue
+                wy = max(0.0, min(1.0, (y - (dn['y0'] - F)) / F, ((dn['y1'] + F) - y) / F))
+            else:
+                wy = 1.0
             ct, st = math.cos(dn['rot']), math.sin(dn['rot'])
             u = (x - dn['cx']) * ct + y * st            # 旋到带轴向
             t = abs(u) / dn['hw']
             if t < 1.0:
-                wgt = (1 - t * t) ** 2
+                wgt = (1 - t * t) ** 2 * wy
                 dx += -u / dn['hw'] * dn['pull'] * dn['hw'] * wgt * ct
                 dy += -u / dn['hw'] * dn['pull'] * dn['hw'] * wgt * st + dn['depth'] * wgt
         return dx, dy
@@ -505,19 +513,20 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     dent_cfg = C('paper', 'dent', default={})
     bands = C('paper', 'bands', default={})
     rng_band = random.Random(str(md_path.name) + salt + 'band')
-    band_html = ''
-    for _ in range(rng_band.randint(*map(int, bands.get('count', [1, 3])))):
-        bw = rng_band.uniform(*bands.get('width', [90, 350]))
-        bx = rng_band.uniform(-60, 620)
-        g = rng_band.randint(*bands.get('gray', [230, 240]))
-        trot = rng_band.uniform(*bands.get('tilt_deg', [-7, 7]))
-        field.add_dent(bx + bw / 2, bw / 2,
-                       rng_band.uniform(*dent_cfg.get('depth', [14, 22])),
-                       float(dent_cfg.get('pull', 0.3)), trot)
-        band_html += (f'<div style="position:absolute;z-index:-3;top:-15%;left:{bx:.0f}px;'
-                      f'width:{bw:.0f}px;height:130%;'
-                      f'background:linear-gradient(90deg, #ffffff 0%, #{g:02x}{g:02x}{g:02x} {rng_band.uniform(0.35, 0.5) * 100:.0f}%, #{g:02x}{g:02x}{g:02x} {rng_band.uniform(0.55, 0.75) * 100:.0f}%, #ffffff 100%);'
-                      f'-webkit-transform:rotate({trot:.1f}deg);transform:rotate({trot:.1f}deg);"></div>')
+    band_data = []
+    # 每一页独立随机 0~2 条阴影带 + 对应凹陷：位置/宽度/角度/灰度/渐变全部独立
+    for k in range(12):
+        for _ in range(rng_band.randint(*map(int, bands.get('count', [0, 2])))):
+            bw = rng_band.uniform(*bands.get('width', [90, 350]))
+            bx = rng_band.uniform(-60, 620)
+            g = rng_band.randint(*bands.get('gray', [230, 240]))
+            trot = rng_band.uniform(*bands.get('tilt_deg', [-7, 7]))
+            depth = rng_band.uniform(*dent_cfg.get('depth', [3, 4]))
+            pull = float(dent_cfg.get('pull', 0.05))
+            y0, y1 = k * 993, k * 993 + 993
+            field.add_dent(bx + bw / 2, bw / 2, depth, pull, trot, y0 - 40, y1 + 40)
+            band_data.append({'k': k, 'x': bx, 'w': bw, 'g': g, 'tilt': trot,
+                              's1': rng_band.uniform(0.35, 0.5), 's2': rng_band.uniform(0.55, 0.75)})
     ASSETS.mkdir(parents=True, exist_ok=True)
     grid_png = ASSETS / f'grid_{md_path.stem}.png'
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
@@ -530,7 +539,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
                  f"background-image:url('{noise_png.as_uri()}');"
                  f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
     body = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
-    def paper_div(min_h=None):
+    def paper_div(min_h=None, band_html=''):
         mh = f'min-height:{min_h}px;' if min_h else ''
         paper_style = (f'position:relative;overflow:hidden;background-color:#ffffff;{mh}'
                        f'padding:26px 30px;'
@@ -538,10 +547,10 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
                        f'transform:rotate({rot:.2f}deg) translate({tx:.0f}px,{ty:.0f}px) scale({sc:.3f});'
                        f'transform-origin:center top;')
         return f'<div style="{paper_style}">{noise_div}{band_html}{grid_div}{body}</div>'
-    def build_html(min_h=None):
+    def build_html(min_h=None, band_html=''):
         return (f'<!DOCTYPE html><html><head><meta charset="utf-8">'
                 f'<title>{md_path.stem}</title><style>{build_css()}</style></head>'
-                f'<body>{paper_div(min_h)}</body></html>')
+                f'<body>{paper_div(min_h, band_html)}</body></html>')
     html_file = md_path.parent / f'.hw_{md_path.stem}.tmp.html'
     pdf_file = out_dir / f'{md_path.stem}（手写版）.pdf'
     tmp_pdf = out_dir / f'.tmp_{md_path.stem}.pdf'
@@ -556,7 +565,14 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     tmp_pdf.unlink(missing_ok=True)
     make_grid_png(grid_png, field, int(C('paper', 'width', default=658)), n * 993 - 12)
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
-    html_file.write_text(build_html(n * 993 - 12), encoding='utf-8')
+    # 阴影带 div：每页各自的随机带（只生成实际存在页面的）
+    band_html = ''.join(
+        f'<div style="position:absolute;z-index:-3;top:{b["k"] * 993 - 15:.0f}px;left:{b["x"]:.0f}px;'
+        f'width:{b["w"]:.0f}px;height:1023px;'
+        f'background:linear-gradient(90deg, #ffffff 0%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s1"] * 100:.0f}%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s2"] * 100:.0f}%, #ffffff 100%);'
+        f'-webkit-transform:rotate({b["tilt"]:.1f}deg);transform:rotate({b["tilt"]:.1f}deg);"></div>'
+        for b in band_data if b['k'] < n)
+    html_file.write_text(build_html(n * 993 - 12, band_html), encoding='utf-8')
     subprocess.run(cmd_base + [str(html_file), str(pdf_file)], check=True, cwd=str(md_path.parent))
     if stamp:
         try:
