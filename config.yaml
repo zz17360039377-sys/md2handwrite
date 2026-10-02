@@ -4,7 +4,7 @@
 # ============================================================
 
 font:
-  path: fonts/XiaolaiSC-Regular.ttf     # 默认随包开源字体（小赖 SC，OFL）    # 手写字体 TTF（相对本脚本目录）
+  path: fonts/XiaolaiSC-Regular.ttf    # 手写字体 TTF（相对本脚本目录）
   em: 27.6                                # 正文字号（显示像素）
   line_height: 1.2                        # 行距倍数
   heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
@@ -33,13 +33,18 @@ glyph:                                    # 逐字渲染
     shift_y: [-12, 12]
     feather_blur: 8                       # 羽化边缘
   bend_clamp_ratio: 0.45                  # 纸面弯曲差分限幅（占 mesh 格比例）
+  ink:                                    # 墨迹入纸：让字"长"在纸上而不是漂在上面
+    bleed_px: 1                           # 渗透毛边（笔画洇开像素数，0 关闭）
+    texture_strength: 0.55                # 纸纹穿透强度（笔画内部墨色不均，0~1）
+    texture_sigma: 50                     # 纸纹噪声尺度
+    pressure: 0.15                        # 笔压渐变（一笔内轻重不同，0~1）
 
 paper:
   width: 658                              # 纸面宽度（显示像素）
   grid_cell: 24                           # 网格间距
   grid_line: '#d9d9d9'                    # 网格线颜色
-  field: { block: 380, amp: 14 }          # 整页弯曲场：块大小 / 幅度
-  dent: { depth: [7, 11], pull: 0.15 }    # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
+  field: { block: 380, amp: 12 }          # 整页弯曲场：块大小 / 幅度
+  dent: { depth: [5, 8], pull: 0.1 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
   bands:                                  # 竖向阴影带
     count: [1, 3]
     width: [90, 350]

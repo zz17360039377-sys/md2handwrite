@@ -131,7 +131,7 @@ def render_char_png(token, color, variant, field, gx, gy):
     """把一个字/词渲染成 PNG：弯曲差分烘进 mesh（字随网格弯），
     整体位移单独返回、由 CSS translate 实现（画布小、不裁剪笔画）。
     gx/gy = 字在纸面坐标系里的近似位置。缺字返回 (None,0,0)。按位置量化缓存。"""
-    from PIL import Image, ImageDraw
+    from PIL import Image, ImageDraw, ImageChops, ImageFilter
     canvas = int(C('glyph', 'canvas', default=256))
     key = hashlib.md5(f'{token}|{color}|{variant}|{int(gx//40)}|{int(gy//40)}'.encode()).hexdigest()[:10]
     CHAR_DIR.mkdir(parents=True, exist_ok=True)
@@ -203,6 +203,24 @@ def render_char_png(token, color, variant, field, gx, gy):
         ImageDraw.Draw(mask).rectangle((10, 10, qw - 10, qh - 10), fill=255)
         mask = mask.filter(ImageFilter.GaussianBlur(int(qa.get('feather_blur', 8))))
         img.paste(region, (qx, qy), mask)
+    # 墨迹入纸：渗透毛边 + 纸纹穿透 + 笔压渐变（让字"长"在纸上而不是漂在上面）
+    ink_cfg = C('glyph', 'ink', default={})
+    A = img.getchannel('A')
+    bp = int(ink_cfg.get('bleed_px', 1))
+    if bp:                                   # 渗透：笔画轻微洇开
+        A = A.filter(ImageFilter.MaxFilter(1 + 2 * bp))
+    ts = float(ink_cfg.get('texture_strength', 0.55))
+    if ts > 0:                               # 纸纹穿透：笔画内部墨色不均
+        g = Image.effect_noise((wpx, Hh), int(ink_cfg.get('texture_sigma', 50)))
+        g = g.filter(ImageFilter.GaussianBlur(2))
+        lut = [int(255 - max(0, i - 128) / 128 * 255 * ts) for i in range(256)]
+        A = ImageChops.multiply(A, g.point(lut))
+    pg = float(ink_cfg.get('pressure', 0.15))
+    if pg > 0:                               # 笔压：斜向渐变，一笔内轻重不同
+        grad = Image.linear_gradient('L').rotate(90).resize((wpx, Hh))
+        lut2 = [int(255 - i / 255 * 255 * pg) for i in range(256)]
+        A = ImageChops.multiply(A, grad.point(lut2))
+    img.putalpha(A)
     # 着色：黑墨 / 红笔
     blk = C('ink', 'black', default=[10, 10, 10])
     red = C('ink', 'red', default=[200, 20, 20])
