@@ -171,14 +171,14 @@ ai时代，手写对于某些场景可能越来越重要，不仅仅是为了美
 
 ### 字体（fonts/）
 
-| 字体 | 作者 | 协议 | 原始出处 |
+| 字体 | 作者 | 协议 | 原始出处 / 下载页 |
 |---|---|---|---|
-| 开心就笑淋雨就走（KXJXLYJZ，默认） | NIPPER (2019) | **来源与许可不详** | 经字体天下转载获得，未找到原始发布页 |
-| 小赖字体 SC (Xiaolai SC) | 落霞孤鹜 (lxgw)，基于濑户字体 (瀬戸のぞみ) 改良 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Xiaolai+SC) · [猫啃网介绍](https://www.maoken.com) |
-| 马善政 (Ma Shan Zheng) | 陈光马善政书法 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Ma+Shan+Zheng) |
-| 龙藏体 (Long Cang) | 龙藏 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Long+Cang) |
-| 志莽行书 (Zhi Mang Xing) | 志莽 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Zhi+Mang+Xing) |
-| 霞鹜文楷 (LXGW WenKai) | 落霞孤鹜 (lxgw) | SIL OFL 1.1 | [GitHub](https://github.com/lxgw/LxgwWenKai) |
+| 开心就笑淋雨就走（KXJXLYJZ，默认） | NIPPER (2019) | **来源与许可不详** | 下载：[字体天下 fonts.net.cn](https://www.fonts.net.cn)（站内搜索字体名）· [爱给网 aigei.com](https://www.aigei.com)；未找到原始发布页 |
+| 小赖字体 SC (Xiaolai SC) | 落霞孤鹜 (lxgw)，基于濑户字体 (瀬戸のぞみ) 改良 | SIL OFL 1.1 | 下载：[Google Fonts](https://fonts.google.com/specimen/Xiaolai+SC) · 介绍：[猫啃网](https://www.maoken.com) |
+| 马善政 (Ma Shan Zheng) | 马善政书法 | SIL OFL 1.1 | 下载：[Google Fonts](https://fonts.google.com/specimen/Ma+Shan+Zheng) |
+| 龙藏体 (Long Cang) | 龙藏 | SIL OFL 1.1 | 下载：[Google Fonts](https://fonts.google.com/specimen/Long+Cang) |
+| 志莽行书 (Zhi Mang Xing) | 志莽 | SIL OFL 1.1 | 下载：[Google Fonts](https://fonts.google.com/specimen/Zhi+Mang+Xing) |
+| 霞鹜文楷 (LXGW WenKai) | 落霞孤鹜 (lxgw) | SIL OFL 1.1 | 下载：[GitHub Releases](https://github.com/lxgw/LxgwWenKai/releases) |
 
 > **版权声明**：默认字体"开心就笑淋雨就走"为个人手写字体，经第三方字体站转载获得，
 > 未找到其原始授权条款。本项目仅作技术演示分发；**若原作者认为分发行为侵犯其权益，
