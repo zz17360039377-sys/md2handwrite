@@ -93,6 +93,7 @@ TYPO_ON = bool(C('typos', 'enabled', default=True))
 
 def build_css():
     hp = C('font', 'heading_px', default={})
+    ls = min(0.17, max(0.0, float(C('font', 'line_squeeze', default=0.15))))   # 行距压缩量（em）
     return f"""
 body {{
     font-family: 'KXJXLYJZ', 'Zhi Mang Xing', 'Xiaolai SC', 'Ma Shan Zheng', 'LXGW WenKai', serif;
@@ -116,7 +117,7 @@ pre code {{ font-size: {hp.get('code', 24)}px; }}
 ul, ol {{ list-style: none; padding-left: 0; margin: 2px 0; }}   /* 不要列表圆点 */
 li {{ margin: 1px 0; }}
 p, li, pre, h1, h2, h3, h4 {{ page-break-inside: avoid; }}   /* 段落整体跨页，避免文字被页边切半 */
-.ch {{ height: 1.32em; vertical-align: -0.19em; }}   /* 逐字图片与文字基线对齐 */
+.ch {{ height: 1.32em; vertical-align: {(0.19 - ls):.3f}em; margin: -{ls:.3f}em 0; }}   /* 负外边距收紧行盒：边框盒位置不变（字位不动），仅行距变小 */
 """
 
 CSS = build_css()
@@ -133,6 +134,9 @@ FONT_PATH = _resolve_font(C('font', 'path', default='KaiXinJiuXiaoLinYuJiuZou-2.
 CHAR_DIR = SCRIPT_DIR / 'assets' / 'chars'
 ASSETS = SCRIPT_DIR / 'assets'
 WM_PNG = SCRIPT_DIR / C('watermark', default='assets/cs_watermark.png') if not Path(C('watermark', default='')).is_absolute() else Path(C('watermark'))
+SIGN_PAGES = {int(p) for p in C('signature', 'pages', default=[1])}
+SIGN_H = float(C('signature', 'height_pt', default=62))               # 签名高度（pt），宽度按原图比例
+SIGN_OVERRIDE = False                                                 # --sign 命令行强制开启
 
 _font_cache = {}
 
@@ -149,14 +153,13 @@ def render_char_png(token, color, variant, field, gx, gy):
     """把一个字/词渲染成 PNG：弯曲差分烘进 mesh（字随网格弯），
     整体位移单独返回、由 CSS translate 实现（画布小、不裁剪笔画）。
     gx/gy = 字在纸面坐标系里的近似位置。缺字返回 (None,0,0)。
-    文件名带随机量（每次现渲、不复用），转换结束后清理。"""
+    按 (字,颜色,变体) 落盘去重：同一字形只渲一次，多处按路径引用
+    （浏览器按 URL 缓存解码，唯一图片数大减），规避大图量随机丢图。"""
     from PIL import Image, ImageDraw, ImageChops, ImageFilter
     canvas = int(C('glyph', 'canvas', default=256))
-    import uuid as _uuid
-    key = hashlib.md5(f'{token}|{color}|{variant}|{_uuid.uuid4().hex}'.encode()).hexdigest()[:12]
+    key = hashlib.md5(f'{token}|{color}|{variant}|{FONT_PATH.name}'.encode()).hexdigest()[:12]
     CHAR_DIR.mkdir(parents=True, exist_ok=True)
     path = CHAR_DIR / f'{key}.png'
-    _session_char_files.append(path)
     s_disp = (1.32 * EM) / canvas
     rng = random.Random(key)
     font = _get_font(int(C('glyph', 'font_px', default=192)))
@@ -166,12 +169,19 @@ def render_char_png(token, color, variant, field, gx, gy):
         wpx = canvas - 36
     wpx = max(canvas // 2, min(wpx, canvas * 4))
     Hh = canvas
+    dcx, dcy = field.sample(gx + wpx * s_disp / 2, gy + Hh * s_disp / 2)
+    if path.exists():                    # 已有同一字形：直接按路径复用（整体位移仍按当前位置单独计算）
+        try:
+            bb = Image.open(path).getbbox()
+            disp_w = ((bb[2] - bb[0]) if bb else wpx) * s_disp + EM * 0.05
+            return path, dcx, dcy, disp_w
+        except Exception:
+            pass
     img = Image.new('RGBA', (wpx, Hh), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
     d.text((canvas // 20, canvas // 32), token, font=font, fill=(0, 0, 0, 255))
     if img.getbbox() is None:        # 字体缺字
         return None, 0.0, 0.0, 0.0
-    dcx, dcy = field.sample(gx + wpx * s_disp / 2, gy + Hh * s_disp / 2)
     # mesh：每点取所在位置场偏移与字中心偏移的差分（弯曲），内部再加少量随机（局部仿射）
     m = 3
     cellw = wpx / m
@@ -248,6 +258,8 @@ def render_char_png(token, color, variant, field, gx, gy):
     bbox = img.getbbox()                             # 墨迹实际左右边界
     disp_w = ((bbox[2] - bbox[0]) if bbox else wpx) * s_disp + EM * 0.05
     out.save(path)
+    if path not in _session_char_files:
+        _session_char_files.append(path)
     return path, dcx, dcy, disp_w
 
 def make_grid_png(path: Path, field, w_disp, h_disp, seed: str = ''):
@@ -389,6 +401,7 @@ class Handwriter(HTMLParser):
         self.chars = set()
         self.red_chars = red_chars if red_chars is not None else set()
         self.stats = {'glyphs': 0, 'lines': 0, 'fallback': 0}
+        self._seen = set()          # 去重后的唯一字形数
 
     def _newline(self, h=None):
         if self.mode == 'gen':
@@ -403,7 +416,7 @@ class Handwriter(HTMLParser):
         if tag in ('pre', 'code'):
             self.skip += 1
         if tag in self._BLOCK:
-            self._newline(40 if tag in ('h1', 'h2') else 34)
+            self._newline(66 if tag == 'h1' else 57 if tag == 'h2' else 12)   # 空行：标题行盒按 1.32×字号折算
         if self.mode == 'gen':
             self.out.append(self.get_starttag_text() or f'<{tag}>')
 
@@ -412,6 +425,8 @@ class Handwriter(HTMLParser):
             self.red -= 1
         if tag in ('pre', 'code') and self.skip:
             self.skip -= 1
+        if tag == 'p':
+            self.cy += 4               # p { margin: 4px 0 }
         if self.mode == 'gen':
             self.out.append(f'</{tag}>')
 
@@ -440,6 +455,7 @@ class Handwriter(HTMLParser):
                 self._newline()
             p, dcx, dcy, disp_w = render_char_png(tok, color, variant, self.field,
                                                   30 + self.cx, 26 + self.cy)
+            self._seen.add((tok, color, variant))
             self.out.append(self._wrap_img(tok, p, dcx, dcy))
             self.cx += disp_w + EM * 0.04      # 精确推进：消除词粘连
             self.stats['glyphs'] = self.stats.get('glyphs', 0) + 1
@@ -490,7 +506,36 @@ def handwrite_html(body, seed, field):
     if not out.strip():
         # 输出为空说明解析链路坏了：直接报错，绝不把原始文本静默传给 wkhtmltopdf（那会整页渲染成问号）
         raise RuntimeError('手写化输出为空：HTML 解析异常，中止而不是回退原始文本')
-    return out, dict(g.stats)
+    st = dict(g.stats)
+    st['unique'] = len(g._seen)
+    return out, st
+
+def _render_signature_img():
+    """用当前手写字体手写签名：逐字随机旋转/缩放/漂移，透明底 PIL 图"""
+    from PIL import Image, ImageDraw
+    text = C('signature', 'text', default='张三')
+    rng = random.Random('sig-' + text)
+    fp = int(C('signature', 'font_px', default=230))
+    font = _get_font(fp)
+    pad = 70
+    imgs, advs = [], []
+    for ch in text:
+        im = Image.new('RGBA', (fp + pad * 2, fp + pad * 2), (0, 0, 0, 0))
+        ImageDraw.Draw(im).text((pad, pad), ch, font=font, fill=(12, 12, 12, 235))
+        im = im.rotate(rng.uniform(-6, 6), resample=getattr(Image, 'Resampling', Image).BICUBIC)
+        sc = rng.uniform(0.9, 1.1)
+        im = im.resize((int(im.width * sc), int(im.height * sc)), Image.Resampling.LANCZOS)
+        imgs.append(im)
+        advs.append(int(fp * 0.92 * sc))
+    H = int(fp * 1.45) + pad
+    W = sum(advs) + pad * 2
+    out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+    x = pad
+    for im, adv in zip(imgs, advs):
+        out.alpha_composite(im, (x, max(0, H - im.height - pad - rng.randint(-6, 18))))
+        x += adv
+    bb = out.getbbox()
+    return out.crop(bb) if bb else out
 
 def stamp_overlay(pdf_file: Path):
     """逐页盖印：虚线框水印（右下角、压字无所谓）+ 正常字体页码"""
@@ -506,6 +551,10 @@ def stamp_overlay(pdf_file: Path):
     wm_w = wm_h * 419 / 125
     wm_x = w - margin - 12.0 - wm_w
     wm_y = margin + 7.5
+    sig_im = None
+    if SIGN_OVERRIDE or C('signature', 'enabled', default=False):
+        sig_im = _render_signature_img()
+        sig_w = SIGN_H * sig_im.width / sig_im.height
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(w, h))
     for i in range(len(reader.pages)):
@@ -518,6 +567,18 @@ def stamp_overlay(pdf_file: Path):
             c.setFont(C('page_number_font', default='Helvetica'), 13)
             c.setFillColorRGB(0.1, 0.1, 0.1)
             c.drawRightString(wm_x - 16, wm_y + 14, str(i + 1))
+        # 手写签名：第一页右上角，随机大小/位置/角度，像随手签的
+        if sig_im and (i + 1) in SIGN_PAGES:
+            from reportlab.lib.utils import ImageReader
+            _srng = random.Random(str(pdf_file) + '-sig')
+            _h = SIGN_H * _srng.uniform(0.9, 1.12)
+            _wd = _h * sig_im.width / sig_im.height
+            c.saveState()
+            c.translate(w - margin - _wd - _srng.uniform(4, 26),
+                        h - margin - _h - _srng.uniform(6, 30))
+            c.rotate(_srng.uniform(-5, 3))
+            c.drawImage(ImageReader(sig_im), 0, 0, _wd, _h, mask='auto')
+            c.restoreState()
         c.showPage()
     c.save()
     buf.seek(0)
@@ -529,6 +590,19 @@ def stamp_overlay(pdf_file: Path):
     with open(pdf_file, 'wb') as f:
         writer.write(f)
 
+
+
+def _pdf_image_stats(pdf_path):
+    """用 poppler 统计 (图像对象总数, 宽>1000 的整页背景数)：检测 wkhtmltopdf 是否丢图"""
+    try:
+        out = subprocess.run(['pdfimages', '-list', str(pdf_path)],
+                             capture_output=True, text=True, timeout=60).stdout
+    except Exception:
+        return None, None           # 无 pdfimages 时跳过自检
+    rows = [l.split() for l in out.splitlines()[2:] if l.strip()]
+    return len(rows), sum(1 for r in rows if len(r) > 4 and r[3].isdigit() and int(r[3]) > 1000)
+
+
 def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     md_path = Path(md_path).resolve()    # 绝对路径：避免与 cwd 叠加导致输入文件找不到
     if not FONT_PATH.exists():
@@ -537,17 +611,16 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     text = md_path.read_text(encoding='utf-8')
     text = text.replace('->', ' ').replace('=>', ' ')
     text = SYM_RE.sub('', text)
-    body = markdown.markdown(text, extensions=['tables', 'fenced_code'])
-    body = IMG_RE.sub('', body)
+    if not text.strip():
+        log("输入内容为空，跳过", "WARN")
+        return None
     lr = random.Random(str(md_path.name) + salt + 'layout')
     tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜：由弯曲场剪切实现（网格与文字一起斜，无裁剪）
     field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
-    # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     rot = lr.uniform(-0.35, 0.35)          # 容器仅微旋（大角度会让底部文字平移出纸面被裁）
     tx = lr.uniform(-18, 8)
     ty = lr.uniform(0, 14)
     sc = lr.uniform(1.0, 1.02)
-    tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜改由畸变场实现（不裁剪）
     dent_cfg = C('paper', 'dent', default={})
     bands = C('paper', 'bands', default={})
     rng_band = random.Random(str(md_path.name) + salt + 'band')
@@ -556,7 +629,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     bg_img = C('paper', 'background_image')
     use_bg = bool(bg_img)
     # 每一页独立随机 0~2 条阴影带 + 对应凹陷：位置/宽度/角度/灰度/渐变全部独立
-    for k in range(12):
+    for k in range(60):                     # 最多按 60 页准备
         for _ in range(rng_band.randint(*map(int, bands.get('count', [0, 2])))):
             bw = rng_band.uniform(*bands.get('width', [90, 350]))
             bx = rng_band.uniform(-60, 620)
@@ -573,17 +646,18 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
     make_grid_png(grid_png, field, 658, 993, seed=str(md_path.name) + salt)   # 第一遍只为数页数，用小贴图
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), 993)
-    if not use_bg:
-        grid_div = (f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
-                    f"background-image:url('{grid_png.as_uri()}');"
-                    f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
-    else:
-        grid_div = ''
+    grid_div = '' if use_bg else (
+        f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
+        f"background-image:url('{grid_png.as_uri()}');"
+        f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
     noise_div = (f'<div style="position:absolute;z-index:-2;top:0;left:0;right:0;bottom:0;'
                  f"background-image:url('{noise_png.as_uri()}');"
                  f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
+    body = markdown.markdown(text, extensions=['tables', 'fenced_code'])
+    body = IMG_RE.sub('', body)
     body, hw_stats = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
-    log(f"字形 {hw_stats['glyphs']} 个（缺字回退 {hw_stats.get('fallback', 0)}），行数 {hw_stats['lines']}")
+    log(f"字形 {hw_stats['glyphs']} 个（唯一图片 {hw_stats.get('unique', '-')}），"
+        f"行 {hw_stats['lines']}，缺字跳过 {hw_stats.get('fallback', 0)}")
     def paper_div(min_h=None, band_html=''):
         mh = f'min-height:{min_h}px;' if min_h else ''
         bg_css = (f"background-image:url('{Path(str(bg_img)).resolve().as_uri()}');"
@@ -601,28 +675,38 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
                 f'<body>{paper_div(min_h, band_html)}</body></html>')
     html_file = md_path.parent / f'.hw_{md_path.stem}.tmp.html'
     pdf_file = out_dir / f'{md_path.stem}（手写版）.pdf'
-    tmp_pdf = out_dir / f'.tmp_{md_path.stem}.pdf'
-    html_file.write_text(build_html(None), encoding='utf-8')
     m = C('page', 'margins_mm', default={})
-    marg = [('--margin-top', str(m.get('top', 16))), ('--margin-bottom', str(m.get('bottom', 18))),
-            ('--margin-left', str(m.get('left', 18))), ('--margin-right', str(m.get('right', 18)))]
-    cmd_base = ['wkhtmltopdf', '--enable-local-file-access', '--quiet'] + [x for p in marg for x in p]
-    subprocess.run(cmd_base + [str(html_file), str(tmp_pdf)], check=True, cwd=str(md_path.parent))
+    cmd_base = ['wkhtmltopdf', '--enable-local-file-access', '--quiet',
+                '--margin-top', str(m.get('top', 16)), '--margin-bottom', str(m.get('bottom', 18)),
+                '--margin-left', str(m.get('left', 18)), '--margin-right', str(m.get('right', 18))]
     from pypdf import PdfReader as _R
-    n = len(_R(str(tmp_pdf)).pages)
-    log(f"首遍渲染 {n} 页，阴影带 {len(band_data)} 条")
-    tmp_pdf.unlink(missing_ok=True)
-    make_grid_png(grid_png, field, 658, n * 993 - 12, seed=str(md_path.name) + salt)
-    make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
-    # 阴影带 div：每页各自的随机带（只生成实际存在页面的）
-    band_html = ''.join(
-        f'<div style="position:absolute;z-index:-3;top:{b["k"] * 993 - 15:.0f}px;left:{b["x"]:.0f}px;'
-        f'width:{b["w"]:.0f}px;height:1023px;'
-        f'background:linear-gradient(90deg, #ffffff 0%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s1"] * 100:.0f}%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s2"] * 100:.0f}%, #ffffff 100%);'
-        f'-webkit-transform:rotate({b["tilt"]:.1f}deg);transform:rotate({b["tilt"]:.1f}deg);"></div>'
-        for b in band_data if b['k'] < n)
-    html_file.write_text(build_html(n * 993 - 12, band_html), encoding='utf-8')
-    subprocess.run(cmd_base + [str(html_file), str(pdf_file)], check=True, cwd=str(md_path.parent))
+    # 整篇连续渲染（版面连贯，无半空页）；字形落盘去重后唯一图片数低；
+    # 万一仍丢图（背景条/字形对象数不足）自动重渲，最多 3 次
+    for attempt in range(3):
+        html_file.write_text(build_html(None), encoding='utf-8')
+        subprocess.run(cmd_base + [str(html_file), str(pdf_file)], check=True, cwd=str(md_path.parent))
+        n = len(_R(str(pdf_file)).pages)
+        log(f"首遍渲染 {n} 页")
+        make_grid_png(grid_png, field, 658, n * 993 - 12, seed=str(md_path.name) + salt)
+        make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
+        # 阴影带 div：每页各自的随机带（只生成实际存在页面的）
+        band_html = ''.join(
+            f'<div style="position:absolute;z-index:-3;top:{b["k"] * 993 - 15:.0f}px;left:{b["x"]:.0f}px;'
+            f'width:{b["w"]:.0f}px;height:1023px;'
+            f'background:linear-gradient(90deg, #ffffff 0%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s1"] * 100:.0f}%, #{b["g"]:02x}{b["g"]:02x}{b["g"]:02x} {b["s2"] * 100:.0f}%, #ffffff 100%);'
+            f'-webkit-transform:rotate({b["tilt"]:.1f}deg);transform:rotate({b["tilt"]:.1f}deg);"></div>'
+            for b in band_data if b['k'] < n)
+        html_file.write_text(build_html(n * 993 - 12, band_html), encoding='utf-8')
+        subprocess.run(cmd_base + [str(html_file), str(pdf_file)], check=True, cwd=str(md_path.parent))
+        rows, wide = _pdf_image_stats(pdf_file)
+        need_wide = 1 if use_bg else 2
+        if rows is not None and (wide < need_wide or rows < hw_stats.get('unique', 0) * 1.5):
+            log(f"第 {attempt + 1} 次渲染丢图（图像对象 {rows}，背景条 {wide}），重渲…", "WARN")
+            continue
+        log(f"渲染 {n} 页，图像对象 {rows}，背景条 {wide}")
+        break
+    else:
+        raise RuntimeError(f'{md_path.name} 重渲 3 次仍丢图，中止')
     if stamp:
         try:
             stamp_overlay(pdf_file)
@@ -630,9 +714,11 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         except ImportError:
             log("缺 pypdf/reportlab，水印页码未盖印", "WARN")
     html_file.unlink(missing_ok=True)
-    # 清理本次生成的字形 PNG（一次性文件，防止 assets/chars 无限膨胀）
+    grid_png.unlink(missing_ok=True)
+    noise_png.unlink(missing_ok=True)
+    # 清理本次生成的字形 PNG（按需重渲即可，防止 assets/chars 无限膨胀）
     removed = 0
-    for p in _session_char_files:
+    for p in set(_session_char_files):
         try:
             p.unlink(missing_ok=True)
             removed += 1
@@ -650,7 +736,10 @@ def main():
     ap.add_argument('-c', '--config', default=None, help='配置文件路径（默认脚本同目录 config.yaml）')
     ap.add_argument('--seed-salt', default='', help='随机种子盐：换一批笔误/弯曲/溅点')
     ap.add_argument('--no-stamp', action='store_true', help='跳过水印与页码盖印')
+    ap.add_argument('--sign', action='store_true', help='在 signature.pages 指定页盖手写签名（assets/signature.png）')
     args = ap.parse_args()
+    global SIGN_OVERRIDE
+    SIGN_OVERRIDE = args.sign
     global CFG, EM, K_GLYPH, TYPO, TYPO_RATE, TYPO_ON, FONT_PATH, WM_PNG, CSS
     if args.config:
         CFG = load_config(args.config)
