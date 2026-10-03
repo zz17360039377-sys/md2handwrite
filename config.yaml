@@ -4,7 +4,7 @@
 # ============================================================
 
 font:
-  path: fonts/XiaolaiSC-Regular.ttf     # 默认随包开源字体（小赖 SC，OFL）    # 手写字体 TTF（相对本脚本目录）
+  path: KaiXinJiuXiaoLinYuJiuZou-2.ttf            # 个人手写字体（class 目录下）
   em: 27.6                                # 正文字号（显示像素）
   line_height: 1.2                        # 行距倍数
   heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
@@ -50,8 +50,7 @@ paper:
   grid_cell: 24                           # 网格间距
   grid_line: '#d9d9d9'                    # 网格线颜色
   field: { block: 380, amp: 12 }          # 整页弯曲场：块大小 / 幅度
-  dent: { depth: [3, 4], pull: 0.05 }
-  background_image:                                       # 留空 = 程序合成弯曲网格纸（推荐，效果见 examples/）；papers/ 内 AI 纸张分辨率有限，短页可用
+  dent: { depth: [3, 4], pull: 0.05 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
   bands:                                  # 竖向阴影带
     count: [0, 2]
     width: [90, 350]

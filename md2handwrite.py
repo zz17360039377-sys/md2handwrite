@@ -115,9 +115,15 @@ p, li, pre, h1, h2, h3, h4 {{ page-break-inside: avoid; }}   /* 段落整体跨�
 
 CSS = build_css()
 
-FONT_PATH = SCRIPT_DIR / C('font', 'path', default='KaiXinJiuXiaoLinYuJiuZou-2.ttf')
-if not FONT_PATH.exists():
-    FONT_PATH = Path.home() / '.local/share/fonts' / C('font', 'path', default='')
+def _resolve_font(rel):
+    cand = [SCRIPT_DIR / rel, SCRIPT_DIR / 'fonts' / Path(rel).name,
+            Path.home() / '.local/share/fonts' / Path(rel).name, Path(rel)]
+    for c in cand:
+        if c.exists():
+            return c
+    return SCRIPT_DIR / rel
+
+FONT_PATH = _resolve_font(C('font', 'path', default='KaiXinJiuXiaoLinYuJiuZou-2.ttf'))
 CHAR_DIR = SCRIPT_DIR / 'assets' / 'chars'
 ASSETS = SCRIPT_DIR / 'assets'
 WM_PNG = SCRIPT_DIR / C('watermark', default='assets/cs_watermark.png') if not Path(C('watermark', default='')).is_absolute() else Path(C('watermark'))
@@ -240,7 +246,7 @@ def make_grid_png(path: Path, field, w_disp, h_disp):
     W, H = int(w_disp) * S, int(h_disp) * S
     img = Image.new('RGBA', (W, H), (255, 255, 255, 0))   # 透明底，露出下面的阴影带和噪点
     d = ImageDraw.Draw(img)
-    step = 12
+    step = 3
     cell = int(C('paper', 'grid_cell', default=24))
     line = C('paper', 'grid_line', default='#d9d9d9')
     for bx in range(0, int(w_disp) + 1, cell):
@@ -405,8 +411,8 @@ class Handwriter(HTMLParser):
         for tok in tokens:
             if tok.isspace():
                 if self.mode == 'gen':
-                    self.out.append(tok)
-                    self.cx += EM * 0.5
+                    self.out.append(f'<span style="display:inline-block;width:{EM * 0.30:.1f}px"></span>')
+                    self.cx += EM * 0.30
                 continue
             if self.mode == 'collect':
                 self.chars.add(tok)
@@ -509,13 +515,14 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     body = markdown.markdown(text, extensions=['tables', 'fenced_code'])
     body = IMG_RE.sub('', body)
     lr = random.Random(str(md_path.name) + salt + 'layout')
+    tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜：由弯曲场剪切实现（网格与文字一起斜，无裁剪）
+    field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
+    # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     rot = lr.uniform(-0.35, 0.35)          # 容器仅微旋（大角度会让底部文字平移出纸面被裁）
     tx = lr.uniform(-18, 8)
     ty = lr.uniform(0, 14)
     sc = lr.uniform(1.0, 1.02)
     tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜改由畸变场实现（不裁剪）
-    field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
-    # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     dent_cfg = C('paper', 'dent', default={})
     bands = C('paper', 'bands', default={})
     rng_band = random.Random(str(md_path.name) + salt + 'band')
@@ -523,9 +530,6 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     # 真实纸张照片背景（AI 生成或实拍）：设置后跳过合成网格与阴影带，文字直接写在照片纸上
     bg_img = C('paper', 'background_image')
     use_bg = bool(bg_img)
-    if bg_img and not Path(str(bg_img)).is_absolute():
-        cand = SCRIPT_DIR / str(bg_img)          # 相对路径按项目根解析
-        bg_img = str(cand) if cand.exists() else str(bg_img)
     # 每一页独立随机 0~2 条阴影带 + 对应凹陷：位置/宽度/角度/灰度/渐变全部独立
     for k in range(12):
         for _ in range(rng_band.randint(*map(int, bands.get('count', [0, 2])))):
