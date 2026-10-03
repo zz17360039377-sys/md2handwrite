@@ -241,7 +241,8 @@ def render_char_png(token, color, variant, field, gx, gy):
     solid = tuple(red) if color == 'red' else tuple(blk)
     out = Image.new('RGBA', (wpx, Hh), solid + (0,))
     out.putalpha(img.getchannel('A'))
-    disp_w = wpx * s_disp
+    bbox = img.getbbox()                             # 墨迹实际左右边界
+    disp_w = ((bbox[2] - bbox[0]) if bbox else wpx) * s_disp + EM * 0.05
     out.save(path)
     return path, dcx, dcy, disp_w
 
