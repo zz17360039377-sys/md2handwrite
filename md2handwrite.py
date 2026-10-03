@@ -214,9 +214,87 @@ def _make_strike_pngs():
     return strikes, scr
 
 def _bridge_strokes(img, gap_px, min_area):
-    """连通算法修复断笔：alpha 二值化 → scipy 标记连通块 → 对间距 ≤ gap_px 的组件对
-    求最近点对，端点各自的主方向与连线共线（|cos|>0.72）才认定是断笔 → 画锥形桥接。
-    合法的分离部件（如"心"的点）方向不共线，不会被误焊。"""
+    """连通算法修复断笔：优先 OpenCV 轮廓提取 —— 有序边界点可精确取切线，
+    并把"断崖贴合焊"成整个四边形（覆盖全切缘，而非单点锥形）；
+    无 cv2 时回退 scipy 像素路径。方向不共线的合法分离部件不会误焊。"""
+    try:
+        import cv2
+    except ImportError:
+        cv2 = None
+    if cv2 is not None:
+        _bridge_strokes_cv2(img, gap_px, min_area)
+        return
+    _bridge_strokes_scipy(img, gap_px, min_area)
+
+def _bridge_strokes_cv2(img, gap_px, min_area):
+    import cv2
+    import numpy as np
+    a = np.asarray(img.getchannel('A'))
+    mask = (a > 90).astype(np.uint8)
+    n, _, stats, _ = cv2.connectedComponentsWithStats(mask, connectivity=8)
+    if n <= 2:
+        return
+    dt = cv2.distanceTransform(mask, cv2.DIST_L2, 3)
+    contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_NONE)
+    infos = [c.reshape(-1, 2).astype(np.float32) for c in contours
+             if cv2.contourArea(c) >= min_area]
+    if len(infos) <= 1:
+        return
+    H, W = mask.shape
+    out = a.copy()
+
+    def tangent(P, idx, toward_b):
+        nP = len(P)
+        a0, a1 = P[(idx - 4) % nP], P[(idx + 4) % nP]
+        t = (float(a1[0] - a0[0]), float(a1[1] - a0[1]))
+        L = math.hypot(*t) or 1.0
+        t = (t[0] / L, t[1] / L)
+        if (t[0] * uy + t[1] * ux) < 0:
+            t = (-t[0], -t[1])
+        return t
+
+    for i in range(len(infos)):
+        for j in range(i + 1, len(infos)):
+            A, B = infos[i], infos[j]
+            d2 = ((A[:, None, 0] - B[None, :, 0]) ** 2 + (A[:, None, 1] - B[None, :, 1]) ** 2)
+            k = int(np.argmin(d2))
+            r_, c_ = divmod(k, len(B))
+            pa = (float(A[r_][0]), float(A[r_][1]))
+            pb = (float(B[c_][0]), float(B[c_][1]))
+            dist = float(np.sqrt(d2.min()))
+            if dist > gap_px or dist < 0.5:
+                continue
+            uy, ux = (pb[1] - pa[1]) / dist, (pb[0] - pa[0]) / dist
+            ta = tangent(A, r_, True)      # 指向 B
+            tb = tangent(B, c_, False)     # 指向 A
+            da, db = ta[0] * uy + ta[1] * ux, tb[0] * uy + tb[1] * ux
+            straight = abs(da) >= 0.55 and abs(db) >= 0.55   # 直笔断崖
+            cont = da > 0.2 and db < -0.2                    # 弯笔延续
+            if not (straight or cont):
+                continue
+            w2 = float(np.clip(min(dt[int(pa[1]), int(pa[0])], dt[int(pb[1]), int(pb[0])]), 0.8, 3.5))
+            o = 0.3 * dist + 1.5            # 两端外延
+            if straight:
+                mid = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+            else:
+                # 切线射线交点作为弯点；近平行则取中点
+                den = ta[0] * tb[1] - ta[1] * tb[0]
+                if abs(den) < 1e-3:
+                    mid = ((pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2)
+                else:
+                    tt = ((pb[0] - pa[0]) * tb[1] - (pb[1] - pa[1]) * tb[0]) / den
+                    mid = (pa[0] + ta[0] * tt, pa[1] + ta[1] * tt)
+            pts = np.array([
+                [pa[0] - ta[0] * o, pa[1] - ta[1] * o],
+                list(mid),
+                [pb[0] - tb[0] * o, pb[1] - tb[1] * o],
+            ], dtype=np.int32)
+            cv2.polylines(out, [pts], False, 255, thickness=max(1, int(round(2 * w2))))
+    if (out != a).any():
+        from PIL import Image as _I
+        img.putalpha(_I.fromarray(out))
+
+def _bridge_strokes_scipy(img, gap_px, min_area):
     import numpy as np
     from scipy import ndimage
     a = np.asarray(img.getchannel('A')).astype(np.uint8)
@@ -255,9 +333,10 @@ def _bridge_strokes(img, gap_px, min_area):
             if dist > gap_px or dist < 0.5:
                 continue
             uy, ux = (pb[0] - pa[0]) / dist, (pb[1] - pa[1]) / dist
+            dirs = []
             ok = True
             for (pyy, pxx, yy, xx) in ((pa[0], pa[1], ya, xa), (pb[0], pb[1], yb, xb)):
-                # 端点邻域主方向（PCA）需与连线共线
+                # 端点邻域主方向（PCA）
                 sel = (np.abs(yy - pyy) <= 6) & (np.abs(xx - pxx) <= 6)
                 if sel.sum() < 3:
                     ok = False
@@ -268,20 +347,45 @@ def _bridge_strokes(img, gap_px, min_area):
                                 [np.mean(vy * vx), np.mean(vx * vx)]])
                 ev, evec = np.linalg.eigh(cov)
                 v = evec[:, -1]
-                if abs(v[0] * uy + v[1] * ux) < 0.60:
-                    ok = False
-                    break
+                dirs.append((float(v[0]), float(v[1])))
             if not ok:
                 continue
-            # 锥形桥接：宽度取两端笔画宽度的较小者，中间略粗（笔压）
+            (vay, vax), (vby, vbx) = dirs
+            da, db = vay * uy + vax * ux, vby * uy + vbx * ux
+            straight = abs(da) >= 0.60 and abs(db) >= 0.60        # 直笔断崖：直线焊接
+            cont = da > 0.25 and db < -0.25                        # 弯笔延续：A 指向 B 且 B 指向 A
+            if not (straight or cont):
+                continue
             wmax = float(np.clip(min(dt[pa] * 2, dt[pb] * 2), 1.6, 7.0))
-            steps = max(2, int(dist * 2))
-            for t in range(steps + 1):
-                tt = -0.25 + 1.5 * t / steps            # 两端外延 25%：盖住略倾斜的断崖全宽
-                tc = min(max(tt, 0.0), 1.0)
-                yy = pa[0] + (pb[0] - pa[0]) * tt
-                xx = pa[1] + (pb[1] - pa[1]) * tt
-                r = max(0.8, wmax * (0.35 + 0.4 * math.sin(math.pi * tc))) / 2
+            if straight:
+                pts_s = []
+                steps = max(2, int(dist * 2))
+                for t in range(steps + 1):
+                    tt = -0.25 + 1.5 * t / steps    # 两端外延 25%：盖住略倾斜的断崖全宽
+                    tc = min(max(tt, 0.0), 1.0)
+                    pts_s.append((pa[0] + (pb[0] - pa[0]) * tt, pa[1] + (pb[1] - pa[1]) * tt,
+                                  0.35 + 0.4 * math.sin(math.pi * tc)))
+            else:
+                # 二次贝塞尔：控制点在垂直偏移上选使切线与端点方向一致的一侧
+                mx, my = (pa[0] + pb[0]) / 2, (pa[1] + pb[1]) / 2
+                pv = (-uy, ux)
+                mid1 = (mx + pv[0] * dist * 0.35, my + pv[1] * dist * 0.35)
+                mid2 = (mx - pv[0] * dist * 0.35, my - pv[1] * dist * 0.35)
+                t1a = (mid1[0] - pa[0], mid1[1] - pa[1])
+                s1 = t1a[0] * vay + t1a[1] * vax
+                s2 = (mid1[0] - pb[0], mid1[1] - pb[1])
+                s2 = s2[0] * vby + s2[1] * vbx
+                ctrl = mid1 if (s1 > 0) == (s2 < 0) else mid2
+                pts_s = []
+                steps = max(4, int(dist * 2))
+                for t in range(steps + 1):
+                    tt = t / steps
+                    a1 = (1 - tt) ** 2; a2 = 2 * tt * (1 - tt); a3 = tt * tt
+                    pts_s.append((a1 * pa[0] + a2 * ctrl[0] + a3 * pb[0],
+                                  a1 * pa[1] + a2 * ctrl[1] + a3 * pb[1],
+                                  0.35 + 0.4 * math.sin(math.pi * tt)))
+            for (yy, xx, prof) in pts_s:
+                r = max(0.8, wmax * prof) / 2
                 y0, y1 = int(yy - r), int(yy + r + 1)
                 x0, x1 = int(xx - r), int(xx + r + 1)
                 if 0 <= y0 and y1 < H and 0 <= x0 and x1 < W:
