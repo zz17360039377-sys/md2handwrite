@@ -50,7 +50,8 @@ paper:
   grid_cell: 24                           # 网格间距
   grid_line: '#d9d9d9'                    # 网格线颜色
   field: { block: 380, amp: 12 }          # 整页弯曲场：块大小 / 幅度
-  dent: { depth: [3, 4], pull: 0.05 }      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
+  dent: { depth: [3, 4], pull: 0.05 }
+  background_image: papers/paper_ai.png   # 纸张照片背景（papers/ 内可换，留空则用合成网格）      # 阴影带凹陷：下压深度 / 向内收拢系数（字与网格一起凹）
   bands:                                  # 竖向阴影带
     count: [0, 2]
     width: [90, 350]

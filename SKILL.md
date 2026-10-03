@@ -15,7 +15,7 @@ description: 把 Markdown 笔记渲染成仿真实手写扫描风格的 PDF（�
 1. 确认依赖（只需一次）：`bash install.sh`
    需要：wkhtmltopdf（sudo apt install wkhtmltopdf）、Python 包 pypdf / reportlab / pillow / pyyaml
 2. 把要转的 `.md` 笔记放进 `笔记/` 目录（或记住文件路径）
-3. 运行一键脚本：`bash 一键生成.sh`
+3. 运行一键脚本：`bash generate.sh`
    或手动指定：`python3 md2handwrite.py 笔记/xxx.md`（可传多个文件或整个目录）
 4. 输出在 `手写版/` 目录，文件名 = 原名 + （手写版）.pdf
 
@@ -51,6 +51,11 @@ description: 把 Markdown 笔记渲染成仿真实手写扫描风格的 PDF（�
 - `As = 1.0/w` 除零报错：字形网格退化，已内置限幅；如再遇到，调小 quarter_affine 幅度
 - 页码/水印不出现：确认 pypdf、reportlab 已安装，且 assets/cs_watermark.png 存在
 - 换字体：替换 fonts/ 下的 ttf 或改 config.yaml 的 font.path，然后删除 assets/chars/ 缓存
+
+## 纸张背景与自定义资源
+
+- `papers/`：纸张照片背景（AI 生成或实拍）。config.yaml 的 `paper.background_image` 指向哪张，文字就写在哪张纸上；**留空则回退到程序合成的弯曲网格纸**
+- 想换纸：生成（notebook-photo/gen_paper.py）或拍摄自己的笔记本空页 → 放入 papers/ → 改 config 路径
 
 ## 字体许可
 

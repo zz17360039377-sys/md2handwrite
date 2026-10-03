@@ -508,14 +508,14 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     text = SYM_RE.sub('', text)
     body = markdown.markdown(text, extensions=['tables', 'fenced_code'])
     body = IMG_RE.sub('', body)
-    field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
-    # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     lr = random.Random(str(md_path.name) + salt + 'layout')
     rot = lr.uniform(-0.35, 0.35)          # 容器仅微旋（大角度会让底部文字平移出纸面被裁）
     tx = lr.uniform(-18, 8)
     ty = lr.uniform(0, 14)
     sc = lr.uniform(1.0, 1.02)
     tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜改由畸变场实现（不裁剪）
+    field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
+    # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     dent_cfg = C('paper', 'dent', default={})
     bands = C('paper', 'bands', default={})
     rng_band = random.Random(str(md_path.name) + salt + 'band')
@@ -523,6 +523,9 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     # 真实纸张照片背景（AI 生成或实拍）：设置后跳过合成网格与阴影带，文字直接写在照片纸上
     bg_img = C('paper', 'background_image')
     use_bg = bool(bg_img)
+    if bg_img and not Path(str(bg_img)).is_absolute():
+        cand = SCRIPT_DIR / str(bg_img)          # 相对路径按项目根解析
+        bg_img = str(cand) if cand.exists() else str(bg_img)
     # 每一页独立随机 0~2 条阴影带 + 对应凹陷：位置/宽度/角度/灰度/渐变全部独立
     for k in range(12):
         for _ in range(rng_band.randint(*map(int, bands.get('count', [0, 2])))):

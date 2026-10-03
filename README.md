@@ -23,7 +23,7 @@
 ```bash
 bash install.sh          # 一键安装依赖（wkhtmltopdf 需 sudo apt install wkhtmltopdf）
 cp 我的笔记.md 笔记/
-bash 一键生成.sh          # 输出在 手写版/
+bash generate.sh          # 输出在 手写版/
 ```
 
 手动运行：
@@ -79,6 +79,17 @@ config.yaml 常用参数速查（改完保存，重跑即可生效）：
 - **背景太脏 / 太干净？** 三个旋钮：noise.grain_enabled、noise.stains.count、bands.count
 - **页码能换字体吗？** page_number_font 任意 fontconfig 字体（默认 Helvetica，刻意不用手写体）
 
+## 自定义资源（字体 / 纸张 / 水印）
+
+| 资源 | 位置 | 使用方法 |
+|---|---|---|
+| 手写字体 | `fonts/` | 放入任意 TTF，改 config.yaml 的 `font.path: fonts/你的字体.ttf` |
+| 纸张照片背景 | `papers/` | 用 `gen_paper.py`（notebook-photo 项目）生成，或放自己的实拍纸张照片；改 config 的 `paper.background_image`；**留空则使用程序合成的弯曲网格纸** |
+| 扫描水印 | `assets/cs_watermark.png` | 替换为你自己的水印图（右下角，虚线框自动包围）；config 的 `watermark` 留空则不盖印 |
+| 错别字映射表 | config.yaml `typos.pairs` | 形近字/同音字对，按需增删 |
+
+非开源字体（如商业手写体）放入项目后已被 .gitignore 排除，不会进入 git。
+
 ## 作为 Agent Skill 使用
 
 本目录符合 Agent Skill 规范（SKILL.md + 资源）。把 `handwrite-notes/`
@@ -91,12 +102,15 @@ Agent 即可在用户要求"生成手写笔记 PDF"时自动调用。
 handwrite-notes/
 ├── SKILL.md            # Skill 描述与使用说明
 ├── README.md
+├── LICENSE             # MIT
 ├── config.yaml         # 全部渲染参数
 ├── md2handwrite.py     # 渲染主脚本
 ├── install.sh          # 一键安装依赖
-├── 一键生成.sh          # 手动一键启动
-├── fonts/              # 手写字体
+├── generate.sh         # 一键生成（手动启动入口）
+├── fonts/              # 手写字体（默认小赖 SC，OFL 可再分发；自己的字体放这里并改 config）
+├── papers/             # 纸张照片背景（AI 生成，可换自己的实拍纸张照片）
 ├── assets/             # 水印、字形缓存、网格与噪点贴图
+├── docs/               # 效果预览图
 └── 笔记/               # 放入待转换的 .md
 ```
 
