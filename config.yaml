@@ -4,9 +4,10 @@
 # ============================================================
 
 font:
-  path: fonts/KaiXinJiuXiaoLinYuJiuZou-2.ttf  # 默认字体：开鑫九霄（与 class 目录调好的效果一致；fonts/ 内 6 款可选，见 fonts/README.md）
+  path: KaiXinJiuXiaoLinYuJiuZou-2.ttf            # 个人手写字体（class 目录下）
   em: 27.6                                # 正文字号（显示像素）
-  line_height: 1.2                        # 行距倍数
+  line_height: 0.95                       # 行距倍数（作用于无图行；逐字图片行距由 line_squeeze 控制）
+  line_squeeze: 0.15                      # 行距压缩量（em）：0.15 ≈ 行距收紧 22%；最大 0.17
   heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
 
 ink:
@@ -70,6 +71,10 @@ paper:
 typos:
   enabled: true                           # 手写笔误（代码与命令不出错）
   rate: 0.008                             # 每字概率，约每页 1~5 个
+  crossout:                               # 手写涂改：划掉错别字补写正确的 / 随机涂掉
+    typo_ratio: 0.35                      # 错别字中被划掉改正的比例（其余不划，装作没发现）
+    random_rate: 0.002                    # 正常字被随机涂掉的概率
+    scribble_ratio: 0.3                   # 划掉方式中"来回涂抹"的比例（其余单/双横线）
   pairs:                                  # 形近字为主：笔画结构类似
     的: 得
     在: 再
@@ -112,12 +117,12 @@ page:
   margins_mm: { top: 16, bottom: 18, left: 18, right: 18 }
   wrap_x: 600                             # 估算自动换行位置
 
-signature:                                # 手写签名（用当前手写字体现渲，指定页右上角随机落笔）
+watermark: assets/cs_watermark.png        # 右下角水印（虚线框只包水印）；留空则不盖印
+signature:                                # 手写签名（用当前手写字体现渲，第一页右上角随机落笔）
   enabled: false                          # false 时用命令行 --sign 对单次生成强制开启
-  text: 张三                               # 签名内容（改成自己的名字）
-  thin_px: 6                              # 笔画变细（越大越细）
+  text: 张三                               # 签名内容
+  thin_px: 6                              # 笔画变细（原生像素，越大越细）
   pages: [1]                              # 盖在第几页
   height_pt: 26                           # 签名高度（pt）≈ 正文 1.25 倍
-watermark: assets/cs_watermark.png        # 右下角水印（虚线框只包水印）；留空则不盖印
 page_number_font: Helvetica               # 页码字体（正常印刷字体）
 output_dir: 手写版                         # 默认输出目录

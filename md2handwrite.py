@@ -90,6 +90,11 @@ K_GLYPH = C('glyph', 'canvas', default=256) / (1.32 * EM)   # 字形画布 px �
 TYPO = {str(k): str(v) for k, v in C('typos', 'pairs', default={}).items()}
 TYPO_RATE = float(C('typos', 'rate', default=0.008))
 TYPO_ON = bool(C('typos', 'enabled', default=True))
+_PEN_PALETTE = [tuple(x) for x in C('ink', 'pen_palette', default=[])]   # 多色笔：遇标题换笔
+_co = C('typos', 'crossout', default={}) or {}
+CO_TYPO = float(_co.get('typo_ratio', 0.35))     # 错别字被划掉并补写正确字的比例
+CO_RANDOM = float(_co.get('random_rate', 0.002)) # 正常字被随机涂掉的比例
+CO_SCRIB = float(_co.get('scribble_ratio', 0.3)) # 划掉方式中"来回涂抹"的比例
 
 def build_css():
     hp = C('font', 'heading_px', default={})
@@ -148,6 +153,65 @@ def _get_font(size=None):
     return _font_cache[size]
 
 _session_char_files = []      # 本次运行生成的字形 PNG（一次性文件，转换结束后统一清理）
+_STRIKE_PNGS = [[], []]       # 手绘涂改素材：[划掉横线, 来回涂抹]
+
+def _make_strike_pngs():
+    """手绘涂改笔画：波浪线（笔压中粗两端细）+ 来回涂抹，墨迹纹理/渗透与字形同款"""
+    from PIL import Image, ImageDraw, ImageChops, ImageFilter
+    rng = random.Random('strike')
+    ink = tuple(C('ink', 'black', default=[10, 10, 10]))
+    W, H = 340, 100
+
+    def stroke(d, y0, amp, thick):
+        pts, n, ph = [], 26, rng.uniform(0, 6.28)
+        freq = rng.uniform(4.5, 7)
+        for i in range(n + 1):
+            t = i / n
+            x = 6 + t * (W - 12)
+            y = y0 + amp * math.sin(ph + t * freq) + rng.uniform(-1.2, 1.2)
+            pts.append((x, y))
+        for i in range(len(pts) - 1):
+            t = i / (len(pts) - 1)
+            w = max(1.4, thick * (0.5 + 0.5 * math.sin(math.pi * t)))   # 笔压：中间重
+            d.line([pts[i], pts[i + 1]], fill=ink + (255,), width=int(round(w)))
+            r = w / 2
+            if i == 0 or i == len(pts) - 2:
+                x, y = pts[i if i == 0 else i + 1]
+                d.ellipse([x - r, y - r, x + r, y + r], fill=ink + (255,))
+
+    def one(kind):
+        img = Image.new('RGBA', (W, H), (0, 0, 0, 0))
+        d = ImageDraw.Draw(img)
+        if kind == 'scribble':                    # 来回涂抹 3~4 笔
+            y = rng.uniform(H * 0.3, H * 0.42)
+            for _ in range(rng.randint(3, 4)):
+                stroke(d, y, rng.uniform(2, 5), rng.uniform(5, 7.5))
+                y += rng.uniform(H * 0.12, H * 0.2)
+        else:                                     # 单/双横线划掉
+            stroke(d, H * 0.48, rng.uniform(2.5, 5), rng.uniform(5.5, 7.5))
+            if rng.random() < 0.45:
+                stroke(d, H * 0.48 + rng.uniform(9, 17), rng.uniform(2, 4), rng.uniform(4.5, 6))
+        a = img.getchannel('A')
+        a = a.filter(ImageFilter.MaxFilter(3))    # 渗透毛边
+        g = Image.effect_noise((W, H), 60).filter(ImageFilter.GaussianBlur(1))
+        lut = [int(255 - max(0, i - 128) / 128 * 255 * 0.75) for i in range(256)]
+        a = ImageChops.multiply(a, g.point(lut))  # 纸纹穿透
+        img.putalpha(a)
+        return img
+
+    strikes = []
+    for i in range(4):
+        f = CHAR_DIR / f'strike_{i}.png'
+        if not f.exists():
+            one('strike').save(f)
+        strikes.append(f)
+    scr = []
+    for i in range(3):
+        f = CHAR_DIR / f'scribble_{i}.png'
+        if not f.exists():
+            one('scribble').save(f)
+        scr.append(f)
+    return strikes, scr
 
 def render_char_png(token, color, variant, field, gx, gy):
     """把一个字/词渲染成 PNG：弯曲差分烘进 mesh（字随网格弯），
@@ -252,7 +316,7 @@ def render_char_png(token, color, variant, field, gx, gy):
     # 着色：黑墨 / 红笔
     blk = C('ink', 'black', default=[10, 10, 10])
     red = C('ink', 'red', default=[200, 20, 20])
-    solid = tuple(red) if color == 'red' else tuple(blk)
+    solid = tuple(color)
     out = Image.new('RGBA', (wpx, Hh), solid + (0,))
     out.putalpha(img.getchannel('A'))
     bbox = img.getbbox()                             # 墨迹实际左右边界
@@ -402,6 +466,7 @@ class Handwriter(HTMLParser):
         self.red_chars = red_chars if red_chars is not None else set()
         self.stats = {'glyphs': 0, 'lines': 0, 'fallback': 0}
         self._seen = set()          # 去重后的唯一字形数
+        self._pen = 0               # 当前笔（多色模式：每遇 h2 换一支）
 
     def _newline(self, h=None):
         if self.mode == 'gen':
@@ -415,6 +480,8 @@ class Handwriter(HTMLParser):
             self.red += 1
         if tag in ('pre', 'code'):
             self.skip += 1
+        if tag == 'h2':
+            self._pen += 1          # 换一支笔
         if tag in self._BLOCK:
             self._newline(66 if tag == 'h1' else 57 if tag == 'h2' else 12)   # 空行：标题行盒按 1.32×字号折算
         if self.mode == 'gen':
@@ -447,20 +514,37 @@ class Handwriter(HTMLParser):
                 if self.red:
                     self.red_chars.add(tok)
                 continue
-            if TYPO_ON and not self.skip and len(tok) == 1 and tok in TYPO and self.rng.random() < TYPO_RATE:
-                tok = TYPO[tok]
-            color = 'red' if self.red else 'black'
+            strike = None
+            if not self.skip and len(tok) == 1:
+                if TYPO_ON and tok in TYPO and self.rng.random() < TYPO_RATE:
+                    if self.rng.random() < CO_TYPO:      # 划掉错字，后面补写正确的
+                        if not any(_STRIKE_PNGS):
+                            _STRIKE_PNGS[:] = [list(x) for x in _make_strike_pngs()]
+                        strike = self.rng.choice(_STRIKE_PNGS[1] if self.rng.random() < CO_SCRIB else _STRIKE_PNGS[0])
+                        self.stats['crossed'] = self.stats.get('crossed', 0) + 1
+                    tok = TYPO[tok]
+                elif self.rng.random() < CO_RANDOM:      # 正常字随机涂掉（不补写）
+                    if not any(_STRIKE_PNGS):
+                        _STRIKE_PNGS[:] = [list(x) for x in _make_strike_pngs()]
+                    strike = self.rng.choice(_STRIKE_PNGS[1] if self.rng.random() < CO_SCRIB * 1.5 else _STRIKE_PNGS[0])
+                    self.stats['crossed'] = self.stats.get('crossed', 0) + 1
+            if self.red:
+                color = tuple(C('ink', 'red', default=[200, 20, 20]))
+            elif _PEN_PALETTE:
+                color = _PEN_PALETTE[self._pen % len(_PEN_PALETTE)]
+            else:
+                color = tuple(C('ink', 'black', default=[10, 10, 10]))
             variant = self.rng.randrange(int(C('glyph', 'variants', default=3)))
             if self.mode == 'gen' and self.cx > 575:      # 提前折行：行宽留余量，浏览器不会抢先折行
                 self._newline()
             p, dcx, dcy, disp_w = render_char_png(tok, color, variant, self.field,
                                                   30 + self.cx, 26 + self.cy)
             self._seen.add((tok, color, variant))
-            self.out.append(self._wrap_img(tok, p, dcx, dcy))
+            self.out.append(self._wrap_img(tok, p, dcx, dcy, strike=strike))
             self.cx += disp_w + EM * 0.04      # 精确推进：消除词粘连
             self.stats['glyphs'] = self.stats.get('glyphs', 0) + 1
 
-    def _wrap_img(self, tok, p, dcx=0.0, dcy=0.0):
+    def _wrap_img(self, tok, p, dcx=0.0, dcy=0.0, strike=None):
         # 行距小，整体位移限幅防止相邻行压线（弯曲差分已在字形 mesh 里）；下限收紧防左缘裁字
         dcx = max(-8.0, min(14.0, dcx))
         dcy = max(-9.0, min(9.0, dcy))
@@ -493,6 +577,12 @@ class Handwriter(HTMLParser):
             if self.stats['fallback'] <= 8:
                 log(f"缺字跳过 {tok!r}（字体无此字，原样输出会变成问号方块）", "WARN")
             return ''
+        if strike:
+            style += 'position:relative;'
+            sl, st_, sw = self.rng.uniform(-16, -7), self.rng.uniform(33, 46), self.rng.uniform(118, 136)
+            return (f'<span style="{style}"><img class="ch" src="{p.as_uri()}">'
+                    f'<img class="strike" src="{strike.as_uri()}" '
+                    f'style="position:absolute;left:{sl:.0f}%;top:{st_:.0f}%;width:{sw:.0f}%"></span>')
         return f'<span style="{style}"><img class="ch" src="{p.as_uri()}"></span>'
 
 def handwrite_html(body, seed, field):
@@ -520,7 +610,8 @@ def _render_signature_img():
     imgs, advs, dys = [], [], []
     x = 0.0
     for ch in text:
-        p, _, _, disp_w = render_char_png(ch, 'black', rng.randrange(int(C('glyph', 'variants', default=3))),
+        p, _, _, disp_w = render_char_png(ch, tuple(C('ink', 'black', default=[10, 10, 10])),
+                                          rng.randrange(int(C('glyph', 'variants', default=3))),
                                           field, 30 + x / s_disp, 30)
         im = Image.open(p)
         imgs.append(im)
@@ -663,7 +754,8 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     body = IMG_RE.sub('', body)
     body, hw_stats = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
     log(f"字形 {hw_stats['glyphs']} 个（唯一图片 {hw_stats.get('unique', '-')}），"
-        f"行 {hw_stats['lines']}，缺字跳过 {hw_stats.get('fallback', 0)}")
+        f"行 {hw_stats['lines']}，缺字跳过 {hw_stats.get('fallback', 0)}，"
+        f"涂改 {hw_stats.get('crossed', 0)} 处")
     def paper_div(min_h=None, band_html=''):
         mh = f'min-height:{min_h}px;' if min_h else ''
         bg_css = (f"background-image:url('{Path(str(bg_img)).resolve().as_uri()}');"
@@ -680,6 +772,8 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
                 f'<title>{md_path.stem}</title><style>{build_css()}</style></head>'
                 f'<body>{paper_div(min_h, band_html)}</body></html>')
     html_file = md_path.parent / f'.hw_{md_path.stem}.tmp.html'
+    out_dir = Path(out_dir).resolve()      # 绝对化：wkhtmltopdf 的 cwd 是 md 所在目录，相对路径会写错位置
+    out_dir.mkdir(parents=True, exist_ok=True)
     pdf_file = out_dir / f'{md_path.stem}（手写版）.pdf'
     m = C('page', 'margins_mm', default={})
     cmd_base = ['wkhtmltopdf', '--enable-local-file-access', '--quiet',
@@ -746,12 +840,17 @@ def main():
     args = ap.parse_args()
     global SIGN_OVERRIDE
     SIGN_OVERRIDE = args.sign
-    global CFG, EM, K_GLYPH, TYPO, TYPO_RATE, TYPO_ON, FONT_PATH, WM_PNG, CSS
+    global CFG, EM, K_GLYPH, TYPO, TYPO_RATE, TYPO_ON, FONT_PATH, WM_PNG, CSS, CO_TYPO, CO_RANDOM, CO_SCRIB, _PEN_PALETTE
     if args.config:
         CFG = load_config(args.config)
         EM = C('font', 'em', default=27.6)
         K_GLYPH = C('glyph', 'canvas', default=256) / (1.32 * EM)
         TYPO = {str(k): str(v) for k, v in C('typos', 'pairs', default={}).items()}
+        _PEN_PALETTE = [tuple(x) for x in C('ink', 'pen_palette', default=[])]   # 多色笔：遇标题换笔
+        _co = C('typos', 'crossout', default={}) or {}
+        CO_TYPO = float(_co.get('typo_ratio', 0.35))
+        CO_RANDOM = float(_co.get('random_rate', 0.002))
+        CO_SCRIB = float(_co.get('scribble_ratio', 0.3))
         TYPO_RATE = float(C('typos', 'rate', default=0.008))
         TYPO_ON = bool(C('typos', 'enabled', default=True))
         FONT_PATH = SCRIPT_DIR / C('font', 'path', default='')

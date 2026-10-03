@@ -3,3 +3,4 @@ assets/grid_*
 assets/noise_*
 手写版/
 .hw_*
+__pycache__/

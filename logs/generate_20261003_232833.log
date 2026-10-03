@@ -1,0 +1,54 @@
+[23:28:33] === 手写笔记生成开始（v2 管线）===
+[23:28:34] 依赖检查通过（python3 / wkhtmltopdf / 全部 Python 模块）
+[23:28:34] [警告] 配置的字体不存在: KaiXinJiuXiaoLinYuJiuZou-2.ttf（将回退到系统已装手写字体）
+[23:28:34] 水印: assets/cs_watermark.png
+[23:28:34] 待转换 4 份: 笔记/示例笔记.md 笔记/唐诗宋词选.md 笔记/英文名著节选.md 笔记/中文古文节选.md
+[23:28:34] [ INFO] +  0.0s 开始转换: 示例笔记.md
+[23:28:34] [ERROR] +  0.8s ✗ 示例笔记.md 转换失败，堆栈如下
+Traceback (most recent call last):
+  File "/home/zz/Desktop/ROS/class/handwrite-notes/md2handwrite.py", line 857, in main
+    pdf = convert(f, out_dir, salt=args.seed_salt, stamp=not args.no_stamp)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/zz/Desktop/ROS/class/handwrite-notes/md2handwrite.py", line 745, in convert
+    body, hw_stats = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/zz/Desktop/ROS/class/handwrite-notes/md2handwrite.py", line 584, in handwrite_html
+    g.feed(body)
+  File "/usr/lib/python3.12/html/parser.py", line 168, in feed
+    self.goahead(0)
+  File "/usr/lib/python3.12/html/parser.py", line 252, in goahead
+    self.handle_data(unescape(rawdata[i:j]))
+  File "/home/zz/Desktop/ROS/class/handwrite-notes/md2handwrite.py", line 524, in handle_data
+    _STRIKE_PNGS[:] = [list(x) for x in _make_strike_pngs()]
+    ~~~~~~~~~~~~^^^
+TypeError: 'tuple' object does not support item assignment
+[23:28:34] [ INFO] +  0.8s 开始转换: 唐诗宋词选.md
+[23:28:36] [ INFO] +  2.7s 字形 221 个（唯一图片 186），行 15，缺字跳过 0，涂改 0 处
+[23:28:37] [ INFO] +  3.8s 首遍渲染 2 页
+[23:28:39] [ INFO] +  5.6s 渲染 2 页，图像对象 450，背景条 8
+[23:28:39] [ INFO] +  5.7s 水印与页码盖印完成
+[23:28:39] [ INFO] +  5.7s 已清理字形临时文件 227 个
+[23:28:39] [ INFO] +  5.7s ✓ 唐诗宋词选.md -> /home/zz/Desktop/ROS/class/handwrite-notes/手写版/唐诗宋词选（手写版）.pdf
+[23:28:39] [ INFO] +  5.7s 开始转换: 英文名著节选.md
+[23:28:42] [ INFO] +  8.6s 字形 276 个（唯一图片 197），行 26，缺字跳过 0，涂改 0 处
+[23:28:44] [ INFO] +  9.8s 首遍渲染 2 页
+[23:28:45] [ INFO] + 11.6s 渲染 2 页，图像对象 574，背景条 10
+[23:28:45] [ INFO] + 11.7s 水印与页码盖印完成
+[23:28:45] [ INFO] + 11.8s 已清理字形临时文件 197 个
+[23:28:45] [ INFO] + 11.8s ✓ 英文名著节选.md -> /home/zz/Desktop/ROS/class/handwrite-notes/手写版/英文名著节选（手写版）.pdf
+[23:28:45] [ INFO] + 11.8s 开始转换: 中文古文节选.md
+[23:28:48] [ INFO] + 14.1s 字形 305 个（唯一图片 248），行 18，缺字跳过 0，涂改 0 处
+[23:28:49] [ INFO] + 15.2s 首遍渲染 1 页
+[23:28:50] [ INFO] + 16.6s 渲染 1 页，图像对象 614，背景条 4
+[23:28:50] [ INFO] + 16.7s 水印与页码盖印完成
+[23:28:50] [ INFO] + 16.7s 已清理字形临时文件 248 个
+[23:28:50] [ INFO] + 16.7s ✓ 中文古文节选.md -> /home/zz/Desktop/ROS/class/handwrite-notes/手写版/中文古文节选（手写版）.pdf
+[23:28:50] [ INFO] + 16.7s === 结束: 成功 3/4，总耗时 16.7s ===
+[23:28:50] === 完成 ===
+[23:28:50] 输出 5 份 PDF:
+[23:28:50]   手写版/示例笔记（手写版）.pdf
+[23:28:50]   手写版/唐诗宋词选（手写版）.pdf
+[23:28:50]   手写版/英文名著节选（手写版）.pdf
+[23:28:50]   手写版/中文古文节选（手写版）.pdf
+[23:28:50]   手写版/C++面向对象基础（手写版）.pdf
+[23:28:50] 完整日志: logs/generate_20261003_232833.log
