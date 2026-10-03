@@ -1014,6 +1014,13 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
                 '--margin-top', str(m.get('top', 16)), '--margin-bottom', str(m.get('bottom', 18)),
                 '--margin-left', str(m.get('left', 18)), '--margin-right', str(m.get('right', 18))]
     from pypdf import PdfReader as _R
+    # 渲染前校验：HTML 引用的字形文件必须全部在盘（缺失会变成 wkhtmltopdf 的"?"占位框）
+    import re as _re
+    from urllib.parse import unquote as _unquote
+    _srcs = _re.findall(r'<img class="ch" src="([^"]+)"', body)
+    _miss = [u for u in _srcs if not Path(_unquote(u.replace('file://', ''))).exists()]
+    if _miss:
+        raise RuntimeError(f'{len(_miss)} 个字形文件缺失（如 {_miss[0].split("/")[-1]}），中止而不是渲染出"?"页')
     # 整篇连续渲染（版面连贯，无半空页）；字形落盘去重后唯一图片数低；
     # 万一仍丢图（背景条/字形对象数不足）自动重渲，最多 3 次
     for attempt in range(3):
