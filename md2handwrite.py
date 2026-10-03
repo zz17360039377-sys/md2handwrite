@@ -10,11 +10,17 @@
       [--seed-salt 文本]  换一批笔误/弯曲/溅点（同一文件不同 salt 结果不同）
       [--no-stamp]        跳过水印与页码盖印
 """
-import subprocess, argparse, random, re, html as H, hashlib, io, math
+import subprocess, argparse, random, re, html as H, hashlib, io, math, sys, time, traceback
 from pathlib import Path
 from html.parser import HTMLParser
 import markdown
 import yaml
+
+T0 = time.time()
+
+def log(msg, level="INFO"):
+    """带时间戳的分级日志：INFO / WARN / ERROR（generate.sh 会同步写入日志文件）"""
+    print(f"[{time.strftime('%H:%M:%S')}] [{level:>5}] +{time.time()-T0:5.1f}s {msg}", flush=True)
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 
@@ -377,12 +383,14 @@ class Handwriter(HTMLParser):
         self.cx, self.cy = 0.0, 0.0
         self.chars = set()
         self.red_chars = red_chars if red_chars is not None else set()
+        self.stats = {'glyphs': 0, 'lines': 0, 'fallback': 0}
 
     def _newline(self, h=None):
         if self.mode == 'gen':
             self.out.append('<br>')      # 换行由我方显式控制：行宽留余量，浏览器永不自行折行
             self.cy += (h if h else EM * float(C('font', 'line_height', default=1.2))) + self.rng.uniform(-2.5, 2.5)
             self.cx = self.rng.uniform(0, 6)
+            self.stats['lines'] = self.stats.get('lines', 0) + 1
 
     def handle_starttag(self, tag, attrs):
         if tag in ('strong', 'b'):
@@ -429,6 +437,7 @@ class Handwriter(HTMLParser):
                                                   30 + self.cx, 26 + self.cy)
             self.out.append(self._wrap_img(tok, p, dcx, dcy))
             self.cx += disp_w + EM * 0.04      # 精确推进：消除词粘连
+            self.stats['glyphs'] = self.stats.get('glyphs', 0) + 1
 
     def _wrap_img(self, tok, p, dcx=0.0, dcy=0.0):
         # 行距小，整体位移限幅防止相邻行压线（弯曲差分已在字形 mesh 里）；下限收紧防左缘裁字
@@ -468,7 +477,7 @@ def handwrite_html(body, seed, field):
     g = Handwriter(random.Random(str(seed)), mode='gen', red_chars=c.red_chars, field=field)
     g.feed(body)
     g.close()
-    return ''.join(g.out) or body
+    return ''.join(g.out) or body, dict(g.stats)
 
 def stamp_overlay(pdf_file: Path):
     """逐页盖印：虚线框水印（右下角、压字无所谓）+ 正常字体页码"""
@@ -509,6 +518,9 @@ def stamp_overlay(pdf_file: Path):
 
 def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     md_path = Path(md_path).resolve()    # 绝对路径：避免与 cwd 叠加导致输入文件找不到
+    if not FONT_PATH.exists():
+        log(f"配置字体不存在: {FONT_PATH}，将回退到系统已装手写字体", "WARN")
+    log(f"开始转换: {md_path.name}")
     text = md_path.read_text(encoding='utf-8')
     text = text.replace('->', ' ').replace('=>', ' ')
     text = SYM_RE.sub('', text)
@@ -557,7 +569,8 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     noise_div = (f'<div style="position:absolute;z-index:-2;top:0;left:0;right:0;bottom:0;'
                  f"background-image:url('{noise_png.as_uri()}');"
                  f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
-    body = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
+    body, hw_stats = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
+    log(f"字形 {hw_stats['glyphs']} 个（缺字回退 {hw_stats.get('fallback', 0)}），行数 {hw_stats['lines']}")
     def paper_div(min_h=None, band_html=''):
         mh = f'min-height:{min_h}px;' if min_h else ''
         bg_css = (f"background-image:url('{Path(str(bg_img)).resolve().as_uri()}');"
@@ -584,6 +597,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     subprocess.run(cmd_base + [str(html_file), str(tmp_pdf)], check=True, cwd=str(md_path.parent))
     from pypdf import PdfReader as _R
     n = len(_R(str(tmp_pdf)).pages)
+    log(f"首遍渲染 {n} 页，阴影带 {len(band_data)} 条")
     tmp_pdf.unlink(missing_ok=True)
     make_grid_png(grid_png, field, int(C('paper', 'width', default=658)), n * 993 - 12)
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
@@ -599,8 +613,9 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     if stamp:
         try:
             stamp_overlay(pdf_file)
+            log("水印与页码盖印完成")
         except ImportError:
-            print('  (提示: 缺 pypdf/reportlab，水印页码未盖印)')
+            log("缺 pypdf/reportlab，水印页码未盖印", "WARN")
     html_file.unlink(missing_ok=True)
     return pdf_file
 
@@ -631,12 +646,16 @@ def main():
             files += sorted(p.glob('*.md'))
         elif p.suffix == '.md':
             files.append(p)
+    ok = 0
     for f in files:
         try:
             pdf = convert(f, out_dir, salt=args.seed_salt, stamp=not args.no_stamp)
-            print(f'✓ {f.name} -> {pdf}')
-        except subprocess.CalledProcessError:
-            print(f'✗ {f.name} 转换失败')
+            log(f"✓ {f.name} -> {pdf}")
+            ok += 1
+        except Exception:
+            log(f"✗ {f.name} 转换失败，堆栈如下", "ERROR")
+            traceback.print_exc()
+    log(f"=== 结束: 成功 {ok}/{len(files)}，总耗时 {time.time()-T0:.1f}s ===")
 
 if __name__ == '__main__':
     main()

@@ -3,5 +3,3 @@ assets/grid_*
 assets/noise_*
 手写版/
 .hw_*
-# 自带的非开源字体不要提交：
-fonts/KaiXin*
