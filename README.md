@@ -164,3 +164,38 @@ ai时代，手写对于某些场景可能越来越重要，不仅仅是为了美
 ## 免责声明
 
 本工具仅供学习和研究使用，不保证生成结果的准确性、完整性或适用性。用户在使用本工具时应自行承担风险，开发者不对因使用本工具而产生的任何直接或间接损失承担责任。同时本工具仅仅为了在CV已经没啥前途的时代对传统CV技术的一点点留念，仅仅用于学术和学习，禁止用于进行欺诈。
+
+## 开源资源与出处
+
+本项目使用/依赖的第三方资源原始出处如下（感谢所有开源作者）：
+
+### 字体（fonts/）
+
+| 字体 | 作者 | 协议 | 原始出处 |
+|---|---|---|---|
+| 开心就笑淋雨就走（KXJXLYJZ，默认） | NIPPER (2019) | **来源与许可不详** | 经字体天下转载获得，未找到原始发布页 |
+| 小赖字体 SC (Xiaolai SC) | 落霞孤鹜 (lxgw)，基于濑户字体 (瀬戸のぞみ) 改良 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Xiaolai+SC) · [猫啃网介绍](https://www.maoken.com) |
+| 马善政 (Ma Shan Zheng) | 陈光马善政书法 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Ma+Shan+Zheng) |
+| 龙藏体 (Long Cang) | 龙藏 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Long+Cang) |
+| 志莽行书 (Zhi Mang Xing) | 志莽 | SIL OFL 1.1 | [Google Fonts](https://fonts.google.com/specimen/Zhi+Mang+Xing) |
+| 霞鹜文楷 (LXGW WenKai) | 落霞孤鹜 (lxgw) | SIL OFL 1.1 | [GitHub](https://github.com/lxgw/LxgwWenKai) |
+
+> **版权声明**：默认字体"开心就笑淋雨就走"为个人手写字体，经第三方字体站转载获得，
+> 未找到其原始授权条款。本项目仅作技术演示分发；**若原作者认为分发行为侵犯其权益，
+> 请提交 Issue 或联系仓库所有者，我们将第一时间删除该字体文件并更换默认字体。**
+> 可放心商用的替代字体见上表（均为 SIL OFL 1.1，可自由再分发）。
+
+### 依赖库与工具
+
+| 项目 | 用途 | 协议 | 出处 |
+|---|---|---|---|
+| wkhtmltopdf | HTML→PDF 渲染引擎 | LGPLv3 | [wkhtmltopdf.org](https://wkhtmltopdf.org) |
+| Pillow | 字形栅格化与图像处理 | MIT-CMU | [python-pillow.org](https://python-pillow.org) |
+| pypdf | PDF 读写与合并 | BSD-3 | [github.com/py-pdf/pypdf](https://github.com/py-pdf/pypdf) |
+| ReportLab | 水印/页码/签名盖印 | BSD-3 | [reportlab.com](https://www.reportlab.com/opensource/) |
+| PyYAML | 配置解析 | MIT | [pyyaml.org](https://pyyaml.org) |
+| Markdown | Markdown→HTML | BSD-3 | [python-markdown.github.io](https://python-markdown.github.io) |
+| NumPy | 字形数组运算 | BSD-3 | [numpy.org](https://numpy.org) |
+| SciPy | 连通域分析（笔画修复回退路径） | BSD-3 | [scipy.org](https://scipy.org) |
+| OpenCV | 形态学闭合/轮廓提取（笔画修复） | Apache-2.0 | [opencv.org](https://opencv.org) |
+| img2pdf | 示例后处理工具 | LGPL-3.0 | [github.com/josch/img2pdf](https://github.com/josch/img2pdf) |
