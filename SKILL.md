@@ -10,6 +10,13 @@ description: 把 Markdown 笔记渲染成仿真实手写扫描风格的 PDF（�
 红笔重点（md `**加粗**` 标红放大不加粗）、少量形近字笔误（代码永不写错）、
 右下角扫描水印虚线框 + 印刷体页码、可选手写签名。参数全部在 config.yaml。
 
+## 环境与依赖（重要规则）
+
+- 默认只用系统 `python3` 与 `wkhtmltopdf`，先跑 `bash install.sh` 检测
+- **创建新 conda 环境、切换/使用其他 Python 解释器之前，必须先询问用户**，不得自作主张
+- install.sh 交互模式会在安装任何包前确认；`--yes` 仅在用户明确同意后使用
+- 依赖缺失的表现：转换报 ModuleNotFoundError —— 按提示装包，不要换解释器绕过
+
 ## AI 调用速查（照抄即可）
 
 ```bash
