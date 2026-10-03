@@ -495,13 +495,30 @@ def render_char_png(token, color, variant, field, gx, gy):
         BIL = getattr(Image, 'Resampling', Image).BILINEAR
         region = region.transform((qw, qh), MESH, mesh_data, resample=BIL)
         img.paste(region, (qx, qy))             # 边界恒等 → 硬贴也无缝
-    # 抗断裂闭合：细笔接缝在重采样中最易掉到可见阈值以下 —— 先膨胀后腐蚀，
-    # 缝隙 ≤ close_px 被焊回，笔画宽度不变；发丝连接恢复为实线
+    # 抗断裂（cv2）：① 椭圆核形态学闭合，焊回 ≤ close_px 的细缝与发丝接缝
+    # ② 细笔画强化：距离变换找出比 reinforce_min_w 更细的笔画局部，重新补墨到
+    #    reinforce_boost —— 这类"淡出的发丝"连通块分析看不见，必须直接补
     from PIL import ImageFilter
-    cl = int(C('glyph', 'close_px', default=2))
-    if cl > 0:
-        A0 = img.getchannel('A').filter(ImageFilter.MaxFilter(1 + 2 * cl)).filter(ImageFilter.MinFilter(1 + 2 * cl))
-        img.putalpha(A0)
+    cl = int(C('glyph', 'close_px', default=3))
+    rw = float(C('glyph', 'reinforce_min_w', default=2.2))
+    rb = int(C('glyph', 'reinforce_boost', default=235))
+    try:
+        import cv2 as _cv2
+        import numpy as _np
+        A0 = _np.asarray(img.getchannel('A')).copy()
+        if cl > 0:
+            ker = _cv2.getStructuringElement(_cv2.MORPH_ELLIPSE, (1 + 2 * cl, 1 + 2 * cl))
+            A0 = _cv2.morphologyEx(A0, _cv2.MORPH_CLOSE, ker)
+        if rw > 0:
+            solid = (A0 > 140).astype(_np.uint8)
+            dtw = _cv2.distanceTransform(solid, _cv2.DIST_L2, 3)
+            thin = (dtw > 0) & (dtw < rw)
+            A0[thin] = _np.maximum(A0[thin], rb)
+        img.putalpha(Image.fromarray(A0))
+    except ImportError:
+        if cl > 0:
+            A0 = img.getchannel('A').filter(ImageFilter.MaxFilter(1 + 2 * cl)).filter(ImageFilter.MinFilter(1 + 2 * cl))
+            img.putalpha(A0)
     # 连通修复：仿射/弯折可能在笔画交叉处留下断缝 —— 标记连通块，
     # 找到"端点相对、方向共线、间距 ≤ gap_px"的断笔，画锥形桥接（在墨纹前画，质感一致）
     br = C('glyph', 'bridge', default={})

@@ -39,7 +39,10 @@ glyph:                                    # 逐字渲染
     shift_y: [-12, 12]
     feather_blur: 8                       # 羽化边缘
   bend_clamp_ratio: 0.45
-  close_px: 2                             # 抗断裂闭合：先膨胀后腐蚀，焊回发丝接缝（0 关闭）
+  close_px: 3
+  reinforce_min_w: 2.2                    # 细笔画强化：比该宽度（px）细的笔画局部补墨
+  reinforce_boost: 235                    # 补墨后的 alpha
+                             # 抗断裂闭合：先膨胀后腐蚀，焊回发丝接缝（0 关闭）
 
   bridge:                                 # 连通修复：自动桥接形变造成的笔画断裂
     enabled: true
