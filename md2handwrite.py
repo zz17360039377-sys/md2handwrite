@@ -511,29 +511,29 @@ def handwrite_html(body, seed, field):
     return out, st
 
 def _render_signature_img():
-    """用当前手写字体手写签名：逐字随机旋转/缩放/漂移，透明底 PIL 图"""
-    from PIL import Image, ImageDraw
+    """签名：逐字走完整字形管线（与正文同款墨迹纹理/笔压/扭曲），轻微错落，看起来就是笔记里的字"""
+    from PIL import Image
     text = C('signature', 'text', default='张三')
     rng = random.Random('sig-' + text)
-    fp = int(C('signature', 'font_px', default=230))
-    font = _get_font(fp)
-    pad = 70
-    imgs, advs = [], []
+    field = WarpField('sig-' + text)
+    s_disp = (1.32 * EM) / 256
+    imgs, advs, dys = [], [], []
+    x = 0.0
     for ch in text:
-        im = Image.new('RGBA', (fp + pad * 2, fp + pad * 2), (0, 0, 0, 0))
-        ImageDraw.Draw(im).text((pad, pad), ch, font=font, fill=(12, 12, 12, 235))
-        im = im.rotate(rng.uniform(-6, 6), resample=getattr(Image, 'Resampling', Image).BICUBIC)
-        sc = rng.uniform(0.9, 1.1)
-        im = im.resize((int(im.width * sc), int(im.height * sc)), Image.Resampling.LANCZOS)
+        p, _, _, disp_w = render_char_png(ch, 'black', rng.randrange(int(C('glyph', 'variants', default=3))),
+                                          field, 30 + x / s_disp, 30)
+        im = Image.open(p)
         imgs.append(im)
-        advs.append(int(fp * 0.92 * sc))
-    H = int(fp * 1.45) + pad
-    W = sum(advs) + pad * 2
+        advs.append(disp_w / s_disp)          # 原生像素步进
+        dys.append(rng.uniform(-5, 9))        # 轻微高低错落
+        x += disp_w / s_disp
+    H = 286
+    W = int(sum(advs)) + 24
     out = Image.new('RGBA', (W, H), (0, 0, 0, 0))
-    x = pad
-    for im, adv in zip(imgs, advs):
-        out.alpha_composite(im, (x, max(0, H - im.height - pad - rng.randint(-6, 18))))
-        x += adv
+    cx = 12
+    for im, adv, dy in zip(imgs, advs, dys):
+        out.alpha_composite(im, (int(cx), int(H - im.height - 12 + dy)))
+        cx += adv
     bb = out.getbbox()
     return out.crop(bb) if bb else out
 
