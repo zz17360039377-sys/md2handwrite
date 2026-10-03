@@ -4,8 +4,9 @@
 
 ![效果](https://img.shields.io/badge/style-手写扫描-green) ![依赖](https://img.shields.io/badge/依赖-wkhtmltopdf%20%2B%20Python-blue)
 
-![示例笔记效果](docs/preview-sample.png)
-![C++ 考点笔记效果](docs/preview-cpp.png)
+| 彩色多笔 | 英文 | 古诗词 |
+|---|---|---|
+| ![彩色](docs/preview-彩色中文.png) | ![英文](docs/preview-英文.png) | ![诗词](docs/preview-诗词.png) |
 
 ## 特性
 
@@ -17,11 +18,54 @@
 - **真人笔误**：小概率形近字错别字（30+ 对映射表，可自定义）；命令与代码永不出错
 - **扫描盖印**：右下角水印（虚线框包围）+ 正常字体页码，逐页盖印
 - **全参数配置化**：所有效果集中在 config.yaml
+- **手写签名**：当前手写字体渲染，指定页右上角随机大小/位置/角度（`--sign` 开启）
+- **手写涂改**：错别字部分被划掉/涂抹并在后面补写正确的字
+- **连通修复**：仿射造成的笔画断裂自动桥接焊回
+
+### 特性演示
+
+手写签名（占位"张三"，config 改成自己的名字）：
+
+![签名](docs/feat-signature.png)
+
+多色墨迹轮换（每遇章节换一支笔，`ink.pen_palette` 可选）：
+
+![多色墨迹](docs/feat-colors.png)
+
+手写涂改（`typos.crossout.*`）：
+
+![涂改](docs/feat-crossout.png)
+
+红笔重点（`**加粗**` 标红放大不加粗）：
+
+![红笔重点](docs/feat-redpen.png)
+
+弯曲网格 + 竖向阴影带 + 溅点污渍（全部在文字下层）：
+
+![纸面](docs/feat-paper.png)
+
+扫描水印 + 印刷体页码（水印素材不入库，示例已打码）：
+
+![盖印](docs/feat-stamp.png)
+
+### 字形管线效果（抗断裂）
+
+每字多变体（弯曲场位置不同，全部自动连通）：
+
+![字形变化](docs/glyph-variations.png)
+
+形变断裂自动修复（合法分离部件如"心"的点不误焊）：
+
+![连通修复](docs/bridge-repair.png)
+
+旧仿射贴回撕裂 vs 新管线（窗口化仿射 + cv2 闭合 + 轮廓桥接）：
+
+![抗断裂](docs/anti-break.png)
 
 ## 快速开始
 
 ```bash
-bash install.sh          # 一键安装依赖（wkhtmltopdf 需 sudo apt install wkhtmltopdf）
+bash install.sh          # 一键安装依赖（交互确认；--yes 跳过询问）
 cp 我的笔记.md 笔记/
 bash generate.sh          # 输出在 手写版/
 ```
@@ -37,7 +81,7 @@ python3 md2handwrite.py xxx.md -c my.yaml -o out
 ## 依赖
 
 - 系统：wkhtmltopdf（`sudo apt install wkhtmltopdf`）
-- Python：pypdf、reportlab、pillow、pyyaml（install.sh 会自动装）
+- Python：pypdf、reportlab、pillow、pyyaml、markdown（install.sh 会确认后安装；创建新 conda 环境或换解释器前会先询问）
 - 字体：fonts/ 下的手写 TTF（可换成任意手写字体，改 config.yaml 的 font.path）
 
 ## 命令行参数
@@ -72,7 +116,7 @@ config.yaml 常用参数速查（改完保存，重跑即可生效）：
 
 ## FAQ
 
-- **有缺字 / 方块？** 字体缺字会回退到霞鹜文楷栈；换覆盖更全的字体或更新 font.path
+- **有缺字 / 方块？** 缺字会自动跳过并记录日志（不会出现问号方块）；换覆盖更全的字体可减少跳过
 - **重新生成结果一模一样？** 同一文件名 + 相同 config 的结果是固定的；想变化加 `--seed-salt`
 - **笔误出现在命令里了？** 不会——代码块自动排除笔误
 - **首次生成很慢？** 正在构建字形图片缓存（assets/chars/），之后同字符直接复用；删除该目录可强制重绘
@@ -117,7 +161,7 @@ handwrite-notes/
 
 ## 许可
 
-代码以 **MIT 协议**开源。**默认字体为小赖字体 SC（XiaolaiSC，SIL OFL 开源协议）**，可随包分发；
+代码以 **MIT 协议**开源。**默认字体为开鑫九霄（个人手写风字体，随库分发）**，fonts/ 另有 5 款开源手写字体（协议见 fonts/README.md）；
 如替换为 fonts.net.cn 等来源的商业/免费字体，其许可以来源页说明为准，且此类字体文件已在 .gitignore 中排除、请勿提交到 git。
 
 ## 一些话
