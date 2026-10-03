@@ -246,28 +246,47 @@ def render_char_png(token, color, variant, field, gx, gy):
     out.save(path)
     return path, dcx, dcy, disp_w
 
-def make_grid_png(path: Path, field, w_disp, h_disp):
-    """从畸变场采样绘制整张透明网格纸（字形与网格共用同一份场）"""
+def make_grid_png(path: Path, field, w_disp, h_disp, seed: str = ''):
+    """整张网格纸：竖向明暗渐变（方向/深浅随机，可带角部斜向光暗）+ 弯曲网格线"""
     from PIL import Image, ImageDraw
+    rng = random.Random(str(seed) + 'shade')
     S = 2
     W, H = int(w_disp) * S, int(h_disp) * S
-    img = Image.new('RGBA', (W, H), (255, 255, 255, 0))   # 透明底，露出下面的阴影带和噪点
+    # 1) 竖向明暗渐变底：随机亮端/暗端/方向
+    g_light = rng.randint(249, 253)
+    g_dark = rng.randint(224, 236)
+    if rng.random() < 0.5:
+        g_light, g_dark = g_dark, g_light              # 随机上下方向
+    col = [int(g_light + (g_dark - g_light) * (y / H)) for y in range(H)]
+    base = Image.new('L', (1, H))
+    base.putdata(col)
+    img = base.resize((W, H)).convert('RGBA')
+    # 2) 角部斜向光暗（2x2 双线性放大 = 平滑对角渐变，随机选角与强度）
+    corner = rng.randint(0, 3)
+    a = rng.randint(28, 55)
+    corner_img = Image.new('RGBA', (2, 2), (0, 0, 0, 0))
+    px = [(a, 0), (0, 0), (0, 0), (0, 0)][corner]
+    for i, v in enumerate(px):
+        corner_img.putpixel((i % 2, i // 2), (0, 0, 0, v))
+    corner_img = corner_img.resize((W, H), Image.BILINEAR)
+    img = Image.alpha_composite(img, corner_img)
+    # 3) 弯曲网格线（最上层，不被阴影遮挡）
     d = ImageDraw.Draw(img)
-    step = 3
-    cell = int(C('paper', 'grid_cell', default=24))
+    step = 6
+    cell = int(C('paper', 'grid_cell', default=24)) * S
     line = C('paper', 'grid_line', default='#d9d9d9')
     for bx in range(0, int(w_disp) + 1, cell):
         pts = []
         for Y in range(0, H + 1, step):
             dx, dy = field.sample(bx, Y / S)
             pts.append((bx * S + dx * S, Y + dy * S))
-        d.line(pts, fill=line, width=2)
+        d.line(pts, fill=line, width=3)
     for by in range(0, int(h_disp) + 1, cell):
         pts = []
         for X in range(0, W + 1, step):
             dx, dy = field.sample(X / S, by)
             pts.append((X + dx * S, by * S + dy * S))
-        d.line(pts, fill=line, width=2)
+        d.line(pts, fill=line, width=3)
     img.save(path)
 
 def make_noise_png(path: Path, seed: str, w_disp, h_disp):
@@ -559,7 +578,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     ASSETS.mkdir(parents=True, exist_ok=True)
     grid_png = ASSETS / f'grid_{md_path.stem}.png'
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
-    make_grid_png(grid_png, field, int(C('paper', 'width', default=658)), 993)   # 第一遍只为数页数，用小贴图
+    make_grid_png(grid_png, field, 658, 993, seed=str(md_path.name) + salt)   # 第一遍只为数页数，用小贴图
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), 993)
     if not use_bg:
         grid_div = (f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
@@ -600,7 +619,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     n = len(_R(str(tmp_pdf)).pages)
     log(f"首遍渲染 {n} 页，阴影带 {len(band_data)} 条")
     tmp_pdf.unlink(missing_ok=True)
-    make_grid_png(grid_png, field, int(C('paper', 'width', default=658)), n * 993 - 12)
+    make_grid_png(grid_png, field, 658, n * 993 - 12, seed=str(md_path.name) + salt)
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
     # 阴影带 div：每页各自的随机带（只生成实际存在页面的）
     band_html = ''.join(
