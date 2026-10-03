@@ -112,6 +112,12 @@ page:
   margins_mm: { top: 16, bottom: 18, left: 18, right: 18 }
   wrap_x: 600                             # 估算自动换行位置
 
+signature:                                # 手写签名（用当前手写字体现渲，指定页右上角随机落笔）
+  enabled: false                          # false 时用命令行 --sign 对单次生成强制开启
+  text: 张三                               # 签名内容（改成自己的名字）
+  thin_px: 6                              # 笔画变细（越大越细）
+  pages: [1]                              # 盖在第几页
+  height_pt: 26                           # 签名高度（pt）≈ 正文 1.25 倍
 watermark: assets/cs_watermark.png        # 右下角水印（虚线框只包水印）；留空则不盖印
 page_number_font: Helvetica               # 页码字体（正常印刷字体）
 output_dir: 手写版                         # 默认输出目录
