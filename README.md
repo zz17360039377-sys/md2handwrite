@@ -58,6 +58,7 @@
 
 ```bash
 bash install.sh          # 一键安装依赖（交互确认；--yes 跳过询问）
+
 cp 我的笔记.md 笔记/
 bash generate.sh          # 输出在 手写版/
 ```
