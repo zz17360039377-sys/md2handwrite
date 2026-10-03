@@ -39,6 +39,8 @@ glyph:                                    # 逐字渲染
     shift_y: [-12, 12]
     feather_blur: 8                       # 羽化边缘
   bend_clamp_ratio: 0.45
+  close_px: 2                             # 抗断裂闭合：先膨胀后腐蚀，焊回发丝接缝（0 关闭）
+
   bridge:                                 # 连通修复：自动桥接形变造成的笔画断裂
     enabled: true
     gap_px: 12                            # 可桥接的最大断缝（原生像素）

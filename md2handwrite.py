@@ -213,6 +213,83 @@ def _make_strike_pngs():
         scr.append(f)
     return strikes, scr
 
+def _bridge_strokes(img, gap_px, min_area):
+    """连通算法修复断笔：alpha 二值化 → scipy 标记连通块 → 对间距 ≤ gap_px 的组件对
+    求最近点对，端点各自的主方向与连线共线（|cos|>0.72）才认定是断笔 → 画锥形桥接。
+    合法的分离部件（如"心"的点）方向不共线，不会被误焊。"""
+    import numpy as np
+    from scipy import ndimage
+    a = np.asarray(img.getchannel('A')).astype(np.uint8)
+    mask = a > 90
+    lab, n = ndimage.label(mask, structure=np.ones((3, 3), dtype=int))
+    if n <= 1:
+        return
+    dt = ndimage.distance_transform_edt(mask)
+    comps = []
+    for i, sl in enumerate(ndimage.find_objects(lab), 1):
+        ys, xs = np.where(lab[sl] == i)
+        if len(ys) < min_area:
+            continue
+        comps.append((i, ys.astype(np.int32) + sl[0].start, xs.astype(np.int32) + sl[1].start))
+    if len(comps) <= 1:
+        return
+    H, W = mask.shape
+    out = a.copy()
+    for ai in range(len(comps)):
+        ia, ya, xa = comps[ai]
+        for bi in range(ai + 1, len(comps)):
+            ib, yb, xb = comps[bi]
+            # bbox 间距预筛
+            gy = max(0, max(int(ya.min()), int(yb.min())) - min(int(ya.max()), int(yb.max())))
+            gx = max(0, max(int(xa.min()), int(xb.min())) - min(int(xa.max()), int(xb.max())))
+            if gy > gap_px or gx > gap_px:
+                continue
+            # 最近点对（子采样加速）
+            ya2, xa2, yb2, xb2 = ya[::2], xa[::2], yb[::2], xb[::2]
+            d2 = (ya2[:, None] - yb2[None, :]) ** 2 + (xa2[:, None] - xb2[None, :]) ** 2
+            k = int(np.argmin(d2))
+            r_, c_ = divmod(k, len(yb2))
+            pa = (int(ya2[r_]), int(xa2[r_]))
+            pb = (int(yb2[c_]), int(xb2[c_]))
+            dist = float(np.sqrt(d2.min()))
+            if dist > gap_px or dist < 0.5:
+                continue
+            uy, ux = (pb[0] - pa[0]) / dist, (pb[1] - pa[1]) / dist
+            ok = True
+            for (pyy, pxx, yy, xx) in ((pa[0], pa[1], ya, xa), (pb[0], pb[1], yb, xb)):
+                # 端点邻域主方向（PCA）需与连线共线
+                sel = (np.abs(yy - pyy) <= 6) & (np.abs(xx - pxx) <= 6)
+                if sel.sum() < 3:
+                    ok = False
+                    break
+                vy = yy[sel] - pyy
+                vx = xx[sel] - pxx
+                cov = np.array([[np.mean(vy * vy), np.mean(vy * vx)],
+                                [np.mean(vy * vx), np.mean(vx * vx)]])
+                ev, evec = np.linalg.eigh(cov)
+                v = evec[:, -1]
+                if abs(v[0] * uy + v[1] * ux) < 0.60:
+                    ok = False
+                    break
+            if not ok:
+                continue
+            # 锥形桥接：宽度取两端笔画宽度的较小者，中间略粗（笔压）
+            wmax = float(np.clip(min(dt[pa] * 2, dt[pb] * 2), 1.6, 7.0))
+            steps = max(2, int(dist * 2))
+            for t in range(steps + 1):
+                tt = -0.25 + 1.5 * t / steps            # 两端外延 25%：盖住略倾斜的断崖全宽
+                tc = min(max(tt, 0.0), 1.0)
+                yy = pa[0] + (pb[0] - pa[0]) * tt
+                xx = pa[1] + (pb[1] - pa[1]) * tt
+                r = max(0.8, wmax * (0.35 + 0.4 * math.sin(math.pi * tc))) / 2
+                y0, y1 = int(yy - r), int(yy + r + 1)
+                x0, x1 = int(xx - r), int(xx + r + 1)
+                if 0 <= y0 and y1 < H and 0 <= x0 and x1 < W:
+                    out[y0:y1, x0:x1] = np.maximum(out[y0:y1, x0:x1], 255)
+    if (out != a).any():
+        from PIL import Image as _I
+        img.putalpha(_I.fromarray(out))
+
 def render_char_png(token, color, variant, field, gx, gy):
     """把一个字/词渲染成 PNG：弯曲差分烘进 mesh（字随网格弯），
     整体位移单独返回、由 CSS translate 实现（画布小、不裁剪笔画）。
@@ -271,9 +348,10 @@ def render_char_png(token, color, variant, field, gx, gy):
             quad = (sx0, sy0, sx0, sy1, sx1, sy1, sx1, sy0)   # UL, LL, LR, UR
             data.append(((x0, y0, x1, y1), quad))
     MESH = getattr(Image, 'MESH', getattr(getattr(Image, 'Transform', Image), 'MESH'))
-    BIL = getattr(Image, 'Resampling', Image).BILINEAR
+    BIL = getattr(Image, 'Resampling', Image).BICUBIC
     img = img.transform((wpx, Hh), MESH, data, resample=BIL)
-    # 每字随机 1/4 区域强仿射：随机象限+随机偏移位置，子图 AFFINE 后羽化贴回
+    # 每字随机 1/4 区域强仿射：以"窗口化 MESH 形变"实现 —— 位移场随接近区域边界平滑归零，
+    # 边界恒等 → 接缝两侧内容连续，不会再出现仿射贴回造成的笔画断裂
     qa = C('glyph', 'quarter_affine', default={})
     if qa.get('enabled', True):
         qw, qh = wpx // 2, Hh // 2
@@ -286,15 +364,50 @@ def render_char_png(token, color, variant, field, gx, gy):
         ffx, ffy = rng.uniform(*qa.get('scale', [0.65, 1.4])), rng.uniform(*qa.get('scale', [0.65, 1.4]))
         tx0, ty0 = rng.uniform(*sxr), rng.uniform(*syr)
         cxr, cyr = qw / 2, qh / 2
-        aff = (ct / ffx, st / ffx, -(ct * (cxr + tx0) + st * (cyr + ty0)) / ffx + cxr,
-               -st / ffy, ct / ffy, (st * (cxr + tx0) - ct * (cyr + ty0)) / ffy + cyr)
-        AFF = getattr(Image, 'AFFINE', getattr(getattr(Image, 'Transform', Image), 'AFFINE'))
-        region = region.transform((qw, qh), AFF, aff, resample=BIL)
-        from PIL import ImageFilter
-        mask = Image.new('L', (qw, qh), 0)
-        ImageDraw.Draw(mask).rectangle((10, 10, qw - 10, qh - 10), fill=255)
-        mask = mask.filter(ImageFilter.GaussianBlur(int(qa.get('feather_blur', 8))))
-        img.paste(region, (qx, qy), mask)
+        # 正向位移场 d(q) = (A⁻¹ - I)(q - t)：区域内点被仿射推到的新位置相对原位的偏移
+        a11, a12, a21, a22 = ct * ffx, -st * ffy, st * ffx, ct * ffy
+        tcx = -(ct * (cxr + tx0) + st * (cyr + ty0)) / ffx + cxr
+        tcy = (st * (cxr + tx0) - ct * (cyr + ty0)) / ffy + cyr
+        m = 4
+        band = 0.42 * min(qw, qh)               # 边界过渡带宽度
+        data = []
+        for j in range(m + 1):
+            for i in range(m + 1):
+                bx, by = i * qw / m, j * qh / m
+                dx = (a11 - 1) * (bx - tcx) + a12 * (by - tcy)
+                dy = a21 * (bx - tcx) + (a22 - 1) * (by - tcy)
+                db = min(bx, by, qw - bx, qh - by)
+                w = (min(1.0, db / band)) ** 1.5
+                data.append((bx - dx * w, by - dy * w))
+        mesh_data = []
+        for j in range(m):
+            for i in range(m):
+                k = j * (m + 1) + i
+                ul, ll = data[k], data[k + m + 1]
+                lr, ur = data[k + m + 2], data[k + 1]
+                mesh_data.append(((int(i * qw / m), int(j * qh / m), int((i + 1) * qw / m), int((j + 1) * qh / m)),
+                                  (ul[0], ul[1], ll[0], ll[1], lr[0], lr[1], ur[0], ur[1])))
+        MESH = getattr(Image, 'MESH', getattr(getattr(Image, 'Transform', Image), 'MESH'))
+        BIL = getattr(Image, 'Resampling', Image).BILINEAR
+        region = region.transform((qw, qh), MESH, mesh_data, resample=BIL)
+        img.paste(region, (qx, qy))             # 边界恒等 → 硬贴也无缝
+    # 抗断裂闭合：细笔接缝在重采样中最易掉到可见阈值以下 —— 先膨胀后腐蚀，
+    # 缝隙 ≤ close_px 被焊回，笔画宽度不变；发丝连接恢复为实线
+    from PIL import ImageFilter
+    cl = int(C('glyph', 'close_px', default=2))
+    if cl > 0:
+        A0 = img.getchannel('A').filter(ImageFilter.MaxFilter(1 + 2 * cl)).filter(ImageFilter.MinFilter(1 + 2 * cl))
+        img.putalpha(A0)
+    # 连通修复：仿射/弯折可能在笔画交叉处留下断缝 —— 标记连通块，
+    # 找到"端点相对、方向共线、间距 ≤ gap_px"的断笔，画锥形桥接（在墨纹前画，质感一致）
+    br = C('glyph', 'bridge', default={})
+    if br.get('enabled', True):
+        try:
+            _bridge_strokes(img, float(br.get('gap_px', 12)), int(br.get('min_area', 6)))
+        except Exception as e:
+            import traceback
+            log(f"连通修复失败（忽略）: {e}", "WARN")
+            traceback.print_exc()
     # 墨迹入纸：渗透毛边 + 纸纹穿透 + 笔压渐变（让字"长"在纸上而不是漂在上面）
     ink_cfg = C('glyph', 'ink', default={})
     A = img.getchannel('A')
