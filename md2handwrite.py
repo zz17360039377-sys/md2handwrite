@@ -35,7 +35,10 @@ def load_config(path=None):
     return _deep_merge({
         'font': {'path': 'KaiXinJiuXiaoLinYuJiuZou-2.ttf', 'em': 27.6, 'line_height': 1.2,
                  'heading_px': {'h1': 38.4, 'h2': 32.4, 'h3': 27.6, 'h4': 26.4, 'code': 24}},
-        'ink': {'black': [10, 10, 10], 'red': [200, 20, 20], 'alpha_jitter': [0.82, 1.0]},
+        'ink': {'black': [10, 10, 10], 'red': [160, 15, 15],
+                'alpha_jitter': [0.74, 1.0],
+                'texture_strength': 0.85, 'texture_sigma': 60, 'texture_blur': 1,
+                'pressure': 0.26},
         'glyph': {'canvas': 256, 'font_px': 192,
                   'jitter': {'size': [0.94, 1.06], 'red_boost': 1.16, 'dy_em': [-0.05, 0.05],
                              'rotate_deg': [-2.0, 2.0], 'scale_x': [0.88, 1.12],
@@ -106,6 +109,7 @@ pre {{ padding: 2px 0 2px 16px; line-height: 1.35; }}
 pre code {{ font-size: {hp.get('code', 24)}px; }}
 ul, ol {{ list-style: none; padding-left: 0; margin: 2px 0; }}   /* 不要列表圆点 */
 li {{ margin: 1px 0; }}
+p, li, pre, h1, h2, h3, h4 {{ page-break-inside: avoid; }}   /* 段落整体跨页，避免文字被页边切半 */
 .ch {{ height: 1.32em; vertical-align: -0.19em; }}   /* 逐字图片与文字基线对齐 */
 """
 
@@ -150,7 +154,7 @@ def render_char_png(token, color, variant, field, gx, gy):
     d = ImageDraw.Draw(img)
     d.text((canvas // 20, canvas // 32), token, font=font, fill=(0, 0, 0, 255))
     if img.getbbox() is None:        # 字体缺字
-        return None, 0.0, 0.0
+        return None, 0.0, 0.0, 0.0
     dcx, dcy = field.sample(gx + wpx * s_disp / 2, gy + Hh * s_disp / 2)
     # mesh：每点取所在位置场偏移与字中心偏移的差分（弯曲），内部再加少量随机（局部仿射）
     m = 3
@@ -225,8 +229,9 @@ def render_char_png(token, color, variant, field, gx, gy):
     solid = tuple(red) if color == 'red' else tuple(blk)
     out = Image.new('RGBA', (wpx, Hh), solid + (0,))
     out.putalpha(img.getchannel('A'))
+    disp_w = wpx * s_disp
     out.save(path)
-    return path, dcx, dcy
+    return path, dcx, dcy, disp_w
 
 def make_grid_png(path: Path, field, w_disp, h_disp):
     """从畸变场采样绘制整张透明网格纸（字形与网格共用同一份场）"""
@@ -303,11 +308,12 @@ def make_noise_png(path: Path, seed: str, w_disp, h_disp):
 class WarpField:
     """整页连贯的低频畸变场 + 阴影带凹陷：网格和字形共用同一份场，字随纸一起弯、
     阴影带处纸面向内向下凹陷，字体与网格一起贴合并变形"""
-    def __init__(self, seed, w=None, h=12000):
+    def __init__(self, seed, w=None, h=12000, tilt_deg=0.0):
         f = C('paper', 'field', default={})
         self.w = w if w else int(C('paper', 'width', default=658))
         self.block = float(f.get('block', 380))
         amp = float(f.get('amp', 20))
+        self.tilt = math.radians(tilt_deg)     # 整页微倾：网格与文字一起斜（剪切式，无裁剪）
         rng = random.Random(str(seed) + 'warp')
         self.nx = int(self.w / self.block) + 2
         self.ny = int(h / self.block) + 2
@@ -332,6 +338,7 @@ class WarpField:
               + self.ox[i][j + 1] * (1 - ux) * uy + self.ox[i + 1][j + 1] * ux * uy)
         dy = (self.oy[i][j] * (1 - ux) * (1 - uy) + self.oy[i + 1][j] * ux * (1 - uy)
               + self.oy[i][j + 1] * (1 - ux) * uy + self.oy[i + 1][j + 1] * ux * uy)
+        dx += y * math.tan(self.tilt)          # 整体倾斜：随 y 线性水平偏移
         for dn in self.dents:                    # 阴影带凹陷：沿带轴（含随机倾角）向内收、向下压
             F = 60.0                             # 凹陷只在所属页面 y 范围内生效，边缘 60px 渐入渐出
             if dn['y0'] is not None:
@@ -367,8 +374,9 @@ class Handwriter(HTMLParser):
 
     def _newline(self, h=None):
         if self.mode == 'gen':
-            self.cy += h if h else EM * float(C('font', 'line_height', default=1.2))
-            self.cx = 0.0
+            self.out.append('<br>')      # 换行由我方显式控制：行宽留余量，浏览器永不自行折行
+            self.cy += (h if h else EM * float(C('font', 'line_height', default=1.2))) + self.rng.uniform(-2.5, 2.5)
+            self.cx = self.rng.uniform(0, 6)
 
     def handle_starttag(self, tag, attrs):
         if tag in ('strong', 'b'):
@@ -398,7 +406,7 @@ class Handwriter(HTMLParser):
             if tok.isspace():
                 if self.mode == 'gen':
                     self.out.append(tok)
-                    self.cx += EM * 0.45
+                    self.cx += EM * 0.5
                 continue
             if self.mode == 'collect':
                 self.chars.add(tok)
@@ -409,18 +417,17 @@ class Handwriter(HTMLParser):
                 tok = TYPO[tok]
             color = 'red' if self.red else 'black'
             variant = self.rng.randrange(int(C('glyph', 'variants', default=3)))
-            adv = len(tok) * EM * (0.55 if len(tok) > 1 else 0.9)
-            p, dcx, dcy = render_char_png(tok, color, variant, self.field,
-                                          30 + self.cx, 26 + self.cy)
-            self.out.append(self._wrap_img(tok, p, dcx, dcy))
-            self.cx += adv
-            if self.cx > float(C('page', 'wrap_x', default=600)):
+            if self.mode == 'gen' and self.cx > 575:      # 提前折行：行宽留余量，浏览器不会抢先折行
                 self._newline()
+            p, dcx, dcy, disp_w = render_char_png(tok, color, variant, self.field,
+                                                  30 + self.cx, 26 + self.cy)
+            self.out.append(self._wrap_img(tok, p, dcx, dcy))
+            self.cx += disp_w + EM * 0.04      # 精确推进：消除词粘连
 
     def _wrap_img(self, tok, p, dcx=0.0, dcy=0.0):
-        # 行距小，整体位移限幅防止相邻行压线（弯曲差分已在字形 mesh 里）
-        dcx = max(-12.0, min(12.0, dcx))
-        dcy = max(-8.0, min(8.0, dcy))
+        # 行距小，整体位移限幅防止相邻行压线（弯曲差分已在字形 mesh 里）；下限收紧防左缘裁字
+        dcx = max(-8.0, min(14.0, dcx))
+        dcy = max(-9.0, min(9.0, dcy))
         j = C('glyph', 'jitter', default={})
         r = self.rng
         size = r.uniform(*j.get('size', [0.94, 1.06]))
@@ -501,17 +508,21 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     text = SYM_RE.sub('', text)
     body = markdown.markdown(text, extensions=['tables', 'fenced_code'])
     body = IMG_RE.sub('', body)
-    field = WarpField(str(md_path.name) + salt)
+    field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
     # 阴影带与凹陷：先于字形渲染生成 —— 带内网格与文字一起向内向下凹陷
     lr = random.Random(str(md_path.name) + salt + 'layout')
-    rot = lr.uniform(-3.2, 3.2)
-    tx = lr.uniform(-30, 8)
-    ty = lr.uniform(0, 16)
-    sc = lr.uniform(1.0, 1.025)
+    rot = lr.uniform(-0.35, 0.35)          # 容器仅微旋（大角度会让底部文字平移出纸面被裁）
+    tx = lr.uniform(-18, 8)
+    ty = lr.uniform(0, 14)
+    sc = lr.uniform(1.0, 1.02)
+    tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜改由畸变场实现（不裁剪）
     dent_cfg = C('paper', 'dent', default={})
     bands = C('paper', 'bands', default={})
     rng_band = random.Random(str(md_path.name) + salt + 'band')
     band_data = []
+    # 真实纸张照片背景（AI 生成或实拍）：设置后跳过合成网格与阴影带，文字直接写在照片纸上
+    bg_img = C('paper', 'background_image')
+    use_bg = bool(bg_img)
     # 每一页独立随机 0~2 条阴影带 + 对应凹陷：位置/宽度/角度/灰度/渐变全部独立
     for k in range(12):
         for _ in range(rng_band.randint(*map(int, bands.get('count', [0, 2])))):
@@ -530,16 +541,22 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
     make_grid_png(grid_png, field, int(C('paper', 'width', default=658)), 993)   # 第一遍只为数页数，用小贴图
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), 993)
-    grid_div = (f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
-                f"background-image:url('{grid_png.as_uri()}');"
-                f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
+    if not use_bg:
+        grid_div = (f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
+                    f"background-image:url('{grid_png.as_uri()}');"
+                    f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
+    else:
+        grid_div = ''
     noise_div = (f'<div style="position:absolute;z-index:-2;top:0;left:0;right:0;bottom:0;'
                  f"background-image:url('{noise_png.as_uri()}');"
                  f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
     body = handwrite_html(body, seed=str(md_path.name) + salt, field=field)
     def paper_div(min_h=None, band_html=''):
         mh = f'min-height:{min_h}px;' if min_h else ''
-        paper_style = (f'position:relative;overflow:hidden;background-color:#ffffff;{mh}'
+        bg_css = (f"background-image:url('{Path(str(bg_img)).resolve().as_uri()}');"
+                  f'background-size:100% 100%;background-repeat:no-repeat;') if use_bg \
+            else 'background-color:#ffffff;'
+        paper_style = (f'position:relative;overflow:hidden;{bg_css}{mh}'
                        f'padding:26px 30px;'
                        f'-webkit-transform:rotate({rot:.2f}deg) translate({tx:.0f}px,{ty:.0f}px) scale({sc:.3f});'
                        f'transform:rotate({rot:.2f}deg) translate({tx:.0f}px,{ty:.0f}px) scale({sc:.3f});'
