@@ -84,7 +84,7 @@ config.yaml 常用参数速查（改完保存，重跑即可生效）：
 | 资源 | 位置 | 使用方法 |
 |---|---|---|
 | 手写字体 | `fonts/` | 放入任意 TTF，改 config.yaml 的 `font.path: fonts/你的字体.ttf` |
-| 纸张照片背景 | `papers/` | 用 `gen_paper.py`（notebook-photo 项目）生成，或放自己的实拍纸张照片；改 config 的 `paper.background_image`；**留空则使用程序合成的弯曲网格纸** |
+| 纸张照片背景 | `papers/` | 可选。config 的 `paper.background_image` 指向哪张，文字就写在哪张纸上；**留空（默认）= 程序合成的弯曲网格纸（推荐，效果见 examples/）**。注意：AI 纸张分辨率 1024×1536，整页拉伸会糊，适合短页或封面；实拍高清纸张照片则不受限 |
 | 扫描水印 | `assets/cs_watermark.png` | 替换为你自己的水印图（右下角，虚线框自动包围）；config 的 `watermark` 留空则不盖印 |
 | 错别字映射表 | config.yaml `typos.pairs` | 形近字/同音字对，按需增删 |
 
@@ -108,9 +108,10 @@ handwrite-notes/
 ├── install.sh          # 一键安装依赖
 ├── generate.sh         # 一键生成（手动启动入口）
 ├── fonts/              # 手写字体（默认小赖 SC，OFL 可再分发；自己的字体放这里并改 config）
-├── papers/             # 纸张照片背景（AI 生成，可换自己的实拍纸张照片）
+├── papers/             # 可选纸张照片背景（AI 生成）
 ├── assets/             # 水印、字形缓存、网格与噪点贴图
 ├── docs/               # 效果预览图
+├── examples/           # 输出效果示例 PDF（真实管线产物）
 └── 笔记/               # 放入待转换的 .md
 ```
 
