@@ -535,7 +535,13 @@ def _render_signature_img():
         out.alpha_composite(im, (int(cx), int(H - im.height - 12 + dy)))
         cx += adv
     bb = out.getbbox()
-    return out.crop(bb) if bb else out
+    out = out.crop(bb) if bb else out
+    thin = int(C('signature', 'thin_px', default=6))
+    if thin > 0:                         # 签名笔画变细：对 alpha 腐蚀（比正文墨迹瘦一圈）
+        from PIL import ImageFilter
+        n = max(1, thin // 2)
+        out.putalpha(out.getchannel('A').filter(ImageFilter.MinFilter(1 + 2 * n)))
+    return out
 
 def stamp_overlay(pdf_file: Path):
     """逐页盖印：虚线框水印（右下角、压字无所谓）+ 正常字体页码"""
