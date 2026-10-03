@@ -143,16 +143,20 @@ def _get_font(size=None):
         _font_cache[size] = ImageFont.truetype(str(FONT_PATH), size)
     return _font_cache[size]
 
+_session_char_files = []      # 本次运行生成的字形 PNG（一次性文件，转换结束后统一清理）
+
 def render_char_png(token, color, variant, field, gx, gy):
     """把一个字/词渲染成 PNG：弯曲差分烘进 mesh（字随网格弯），
     整体位移单独返回、由 CSS translate 实现（画布小、不裁剪笔画）。
-    gx/gy = 字在纸面坐标系里的近似位置。缺字返回 (None,0,0)。按位置量化缓存。"""
+    gx/gy = 字在纸面坐标系里的近似位置。缺字返回 (None,0,0)。
+    文件名带随机量（每次现渲、不复用），转换结束后清理。"""
     from PIL import Image, ImageDraw, ImageChops, ImageFilter
     canvas = int(C('glyph', 'canvas', default=256))
     import uuid as _uuid
     key = hashlib.md5(f'{token}|{color}|{variant}|{_uuid.uuid4().hex}'.encode()).hexdigest()[:12]
     CHAR_DIR.mkdir(parents=True, exist_ok=True)
     path = CHAR_DIR / f'{key}.png'
+    _session_char_files.append(path)
     s_disp = (1.32 * EM) / canvas
     rng = random.Random(key)
     font = _get_font(int(C('glyph', 'font_px', default=192)))
@@ -247,46 +251,27 @@ def render_char_png(token, color, variant, field, gx, gy):
     return path, dcx, dcy, disp_w
 
 def make_grid_png(path: Path, field, w_disp, h_disp, seed: str = ''):
-    """整张网格纸：竖向明暗渐变（方向/深浅随机，可带角部斜向光暗）+ 弯曲网格线"""
+    """从畸变场采样绘制整张透明网格纸（字形与网格共用同一份场）"""
     from PIL import Image, ImageDraw
-    rng = random.Random(str(seed) + 'shade')
     S = 2
     W, H = int(w_disp) * S, int(h_disp) * S
-    # 1) 竖向明暗渐变底：随机亮端/暗端/方向
-    g_light = rng.randint(249, 253)
-    g_dark = rng.randint(224, 236)
-    if rng.random() < 0.5:
-        g_light, g_dark = g_dark, g_light              # 随机上下方向
-    col = [int(g_light + (g_dark - g_light) * (y / H)) for y in range(H)]
-    base = Image.new('L', (1, H))
-    base.putdata(col)
-    img = base.resize((W, H)).convert('RGBA')
-    # 2) 角部斜向光暗（2x2 双线性放大 = 平滑对角渐变，随机选角与强度）
-    corner = rng.randint(0, 3)
-    a = rng.randint(28, 55)
-    corner_img = Image.new('RGBA', (2, 2), (0, 0, 0, 0))
-    px = [(a, 0), (0, 0), (0, 0), (0, 0)][corner]
-    for i, v in enumerate(px):
-        corner_img.putpixel((i % 2, i // 2), (0, 0, 0, v))
-    corner_img = corner_img.resize((W, H), Image.BILINEAR)
-    img = Image.alpha_composite(img, corner_img)
-    # 3) 弯曲网格线（最上层，不被阴影遮挡）
+    img = Image.new('RGBA', (W, H), (255, 255, 255, 0))   # 透明底，露出下面的阴影带和噪点
     d = ImageDraw.Draw(img)
-    step = 6
-    cell = int(C('paper', 'grid_cell', default=24)) * S
+    step = 3
+    cell = int(C('paper', 'grid_cell', default=24))
     line = C('paper', 'grid_line', default='#d9d9d9')
     for bx in range(0, int(w_disp) + 1, cell):
         pts = []
         for Y in range(0, H + 1, step):
             dx, dy = field.sample(bx, Y / S)
             pts.append((bx * S + dx * S, Y + dy * S))
-        d.line(pts, fill=line, width=3)
+        d.line(pts, fill=line, width=2)
     for by in range(0, int(h_disp) + 1, cell):
         pts = []
         for X in range(0, W + 1, step):
             dx, dy = field.sample(X / S, by)
             pts.append((X + dx * S, by * S + dy * S))
-        d.line(pts, fill=line, width=3)
+        d.line(pts, fill=line, width=2)
     img.save(path)
 
 def make_noise_png(path: Path, seed: str, w_disp, h_disp):
@@ -487,7 +472,11 @@ class Handwriter(HTMLParser):
                  f'transform-origin:{origin};-webkit-transform:{tf};transform:{tf};'
                  f'letter-spacing:{ls:.3f}em;color:{color};')
         if p is None:
-            return f'<span style="{style}">{H.escape(tok)}</span>'
+            # 字体缺字：绝不把原字写进 HTML —— wkhtmltopdf 无系统中文字体时会渲染成“?”
+            self.stats['fallback'] = self.stats.get('fallback', 0) + 1
+            if self.stats['fallback'] <= 8:
+                log(f"缺字跳过 {tok!r}（字体无此字，原样输出会变成问号方块）", "WARN")
+            return ''
         return f'<span style="{style}"><img class="ch" src="{p.as_uri()}"></span>'
 
 def handwrite_html(body, seed, field):
@@ -497,7 +486,11 @@ def handwrite_html(body, seed, field):
     g = Handwriter(random.Random(str(seed)), mode='gen', red_chars=c.red_chars, field=field)
     g.feed(body)
     g.close()
-    return ''.join(g.out) or body, dict(g.stats)
+    out = ''.join(g.out)
+    if not out.strip():
+        # 输出为空说明解析链路坏了：直接报错，绝不把原始文本静默传给 wkhtmltopdf（那会整页渲染成问号）
+        raise RuntimeError('手写化输出为空：HTML 解析异常，中止而不是回退原始文本')
+    return out, dict(g.stats)
 
 def stamp_overlay(pdf_file: Path):
     """逐页盖印：虚线框水印（右下角、压字无所谓）+ 正常字体页码"""
@@ -637,6 +630,17 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         except ImportError:
             log("缺 pypdf/reportlab，水印页码未盖印", "WARN")
     html_file.unlink(missing_ok=True)
+    # 清理本次生成的字形 PNG（一次性文件，防止 assets/chars 无限膨胀）
+    removed = 0
+    for p in _session_char_files:
+        try:
+            p.unlink(missing_ok=True)
+            removed += 1
+        except OSError:
+            pass
+    _session_char_files.clear()
+    if removed:
+        log(f"已清理字形临时文件 {removed} 个")
     return pdf_file
 
 def main():

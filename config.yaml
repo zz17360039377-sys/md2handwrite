@@ -4,7 +4,7 @@
 # ============================================================
 
 font:
-  path: fonts/XiaolaiSC-Regular.ttf  # 默认字体：开鑫九霄（fonts/ 内 6 款可选，见 fonts/README.md）
+  path: fonts/KaiXinJiuXiaoLinYuJiuZou-2.ttf  # 默认字体：开鑫九霄（与 class 目录调好的效果一致；fonts/ 内 6 款可选，见 fonts/README.md）
   em: 27.6                                # 正文字号（显示像素）
   line_height: 1.2                        # 行距倍数
   heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
