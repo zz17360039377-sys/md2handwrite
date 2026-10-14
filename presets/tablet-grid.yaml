@@ -1,0 +1,56 @@
+# ============================================================
+# 模板2：平板格子风
+# 矩形格（横行距宽、竖列距窄，类平板笔记 App）、纯平纸面（无弯曲/无阴影带/无污渍）、
+# 整行微倾（字不全齐）、黑/蓝/红/绿四色笔按章节轮换、重点黄荧光笔、
+# 代码块行首随机荧光五角星（手绘抖动形状）。
+# 用法：python3 md2handwrite.py 笔记.md -c presets/tablet-grid.yaml
+# ============================================================
+
+font:
+  path: fonts/KaiXinJiuXiaoLinYuJiuZou-2.ttf
+  em: 27.6
+  line_height: 1.35                       # 平板笔记行距略松
+  heading_px: { h1: 38.4, h2: 32.4, h3: 27.6, h4: 26.4, code: 24 }
+
+ink:
+  black: [10, 10, 10]
+  red: [160, 15, 15]
+  alpha_jitter: [0.78, 1.0]
+  texture_strength: 0.55                  # 平板屏质感，纸纹略淡
+  texture_sigma: 60
+  texture_blur: 1
+  pressure: 0.12
+  pen_palette:                            # 四色笔按章节轮换
+    - [10, 10, 10]                        # 黑
+    - [21, 68, 145]                       # 蓝
+    - [160, 15, 15]                       # 红
+    - [18, 110, 62]                       # 绿
+
+glyph:
+  stroke_width: 0
+  line_tilt_deg: [-1.4, -0.3]             # 整行微倾：写出来不会整整齐齐
+  bridge: { enabled: true, gap_px: 12, min_area: 6 }
+  close_px: 3
+
+emphasis:                                 # 荧光笔（重点字底色）与代码五角星
+  style: highlight                        # highlight=色带 | wavy=波浪线 | none
+  colors: [[255, 235, 0]]                 # 黄荧光
+  star_rate: 0.22                         # 代码块行首画五角星概率
+  star_colors: [[255, 235, 0]]
+
+paper:
+  color: [255, 255, 255]
+  grid_enabled: true
+  grid_cell: 24
+  grid_cell_x: 16                         # 竖列距窄
+  grid_cell_y: 34                         # 横行距宽
+  grid_line: '#cfe0ef'                    # 淡蓝格线（平板感）
+  field: { block: 380, amp: 0 }           # 纯平：无弯曲
+  bands: { count: [0, 0] }                # 无阴影带
+  noise:
+    grain_enabled: false
+    stains: { count: [0, 0] }             # 无污渍
+
+page:
+  margins_mm: { top: 16, bottom: 18, left: 18, right: 18 }
+  wrap_x: 600

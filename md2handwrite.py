@@ -213,6 +213,84 @@ def _make_strike_pngs():
         scr.append(f)
     return strikes, scr
 
+def _make_emphasis_png(kind, color, idx):
+    """荧光笔色带 / 波浪线 / 手绘五角星（半透明、随机、非直线的真手绘感）"""
+    from PIL import Image, ImageFilter
+    rng = random.Random(f'{kind}{color}{idx}')
+    r, g, b = color
+    if kind == 'hl':                                   # 荧光笔色带：上下边缘波浪、微微斜
+        from PIL import ImageDraw
+        W, H = 360, 110
+        im = Image.new('L', (W, H), 0)
+        d = ImageDraw.Draw(im)
+        amp, ph1, ph2 = rng.uniform(5, 11), rng.uniform(0, 6.3), rng.uniform(0, 6.3)
+        f1, f2 = rng.uniform(1.1, 2.1), rng.uniform(1.1, 2.1)
+        tilt = rng.uniform(-0.06, 0.06) * W
+        top, bot = [], []
+        for x in range(0, W + 1, 4):
+            t = x / W
+            ym = H * 0.5 + tilt * (t - 0.5)
+            top.append((x, ym - H * 0.26 + amp * math.sin(ph1 + t * 6.28 * f1) + rng.uniform(-1.5, 1.5)))
+            bot.append((x, ym + H * 0.26 + amp * math.sin(ph2 + t * 6.28 * f2) + rng.uniform(-1.5, 1.5)))
+        d.polygon(top + bot[::-1], fill=255)
+        im = im.filter(ImageFilter.GaussianBlur(2.2))
+    elif kind == 'wavy':                               # 手绘波浪线（下划位置）
+        from PIL import ImageDraw
+        W, H = 360, 90
+        im = Image.new('L', (W, H), 0)
+        d = ImageDraw.Draw(im)
+        amp, ph = rng.uniform(7, 12), rng.uniform(0, 6.3)
+        f = rng.uniform(1.6, 2.6)
+        th = rng.choice([6, 7, 8])
+        pts = []
+        for x in range(6, W - 5, 3):
+            y = H * 0.5 + amp * math.sin(ph + x / W * 6.28 * f) + rng.uniform(-1, 1)
+            pts.append((x, y))
+        for i in range(len(pts) - 1):
+            d.line([pts[i], pts[i + 1]], fill=255, width=th)
+        im = im.filter(ImageFilter.GaussianBlur(1.2))
+    else:                                              # 手绘五角星：顶点抖动 + 圆头粗描
+        from PIL import ImageDraw
+        W = H = 240
+        im = Image.new('L', (W, H), 0)
+        d = ImageDraw.Draw(im)
+        cx, cy, R = W / 2, H / 2, rng.uniform(80, 95)
+        rot0 = rng.uniform(0, 6.28)
+        pts = []
+        for k in range(5):
+            ang = rot0 + k * 4 * math.pi / 5 + rng.uniform(-0.09, 0.09)
+            rr = R * rng.uniform(0.88, 1.0)
+            pts.append((cx + rr * math.sin(ang), cy - rr * math.cos(ang)))
+        th = rng.choice([9, 10, 11])
+        seq = pts + [pts[0]]
+        for i in range(5):
+            d.line([seq[i], seq[i + 1]], fill=255, width=th)
+            for (qx, qy) in (seq[i], seq[i + 1]):
+                d.ellipse([qx - th / 2, qy - th / 2, qx + th / 2, qy + th / 2], fill=255)
+        im = im.filter(ImageFilter.GaussianBlur(1.0))
+    hx = ''.join(f'{min(255, max(0, int(v))):02x}' for v in color)
+    path = CHAR_DIR / f'{kind}_{hx}_{idx}.png'
+    col = Image.new('RGBA', im.size, (r, g, b, 0))
+    col.putalpha(im.point(lambda v: int(v * 0.52)))    # 荧光笔半透明
+    col.save(path)
+    return path
+
+_emph_cache = {}
+def _emph_png(kind, color, idx):
+    key = (kind, tuple(color), idx)
+    if key not in _emph_cache:
+        _emph_cache[key] = _make_emphasis_png(kind, color, idx)
+    return _emph_cache[key]
+
+def _star_img():
+    """代码块行首的荧光五角星（随机颜色/形状）"""
+    colors = [tuple(c) for c in C('emphasis', 'star_colors', default=C('emphasis', 'colors', default=[[255, 235, 0]]))]
+    col = _rng_choice(colors)
+    return f'<img class="star" src="{_emph_png("star", col, random.Random(str(col)).randrange(3)).as_uri()}" style="display:inline-block;height:1.12em;width:auto;vertical-align:-0.08em;margin:0 3px">'
+
+def _rng_choice(seq):
+    return random.Random(random.Random().randrange(1 << 30)).choice(seq)
+
 def _bridge_strokes(img, gap_px, min_area):
     """连通算法修复断笔：优先 OpenCV 轮廓提取 —— 有序边界点可精确取切线，
     并把"断崖贴合焊"成整个四边形（覆盖全切缘，而非单点锥形）；
@@ -424,7 +502,12 @@ def render_char_png(token, color, variant, field, gx, gy):
             pass
     img = Image.new('RGBA', (wpx, Hh), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.text((canvas // 20, canvas // 32), token, font=font, fill=(0, 0, 0, 255))
+    _sw = int(C('glyph', 'stroke_width', default=0))
+    if _sw:
+        d.text((canvas // 20, canvas // 32), token, font=font, fill=(0, 0, 0, 255),
+               stroke_width=_sw, stroke_fill=(0, 0, 0, 255))
+    else:
+        d.text((canvas // 20, canvas // 32), token, font=font, fill=(0, 0, 0, 255))
     if img.getbbox() is None:        # 字体缺字
         return None, 0.0, 0.0, 0.0
     # mesh：每点取所在位置场偏移与字中心偏移的差分（弯曲），内部再加少量随机（局部仿射）
@@ -568,15 +651,16 @@ def make_grid_png(path: Path, field, w_disp, h_disp, seed: str = ''):
     img = Image.new('RGBA', (W, H), (255, 255, 255, 0))   # 透明底，露出下面的阴影带和噪点
     d = ImageDraw.Draw(img)
     step = 3
-    cell = int(C('paper', 'grid_cell', default=24))
+    cell_x = int(C('paper', 'grid_cell_x', default=C('paper', 'grid_cell', default=24)))
+    cell_y = int(C('paper', 'grid_cell_y', default=C('paper', 'grid_cell_x', default=24)))
     line = C('paper', 'grid_line', default='#d9d9d9')
-    for bx in range(0, int(w_disp) + 1, cell):
+    for bx in range(0, int(w_disp) + 1, cell_x):
         pts = []
         for Y in range(0, H + 1, step):
             dx, dy = field.sample(bx, Y / S)
             pts.append((bx * S + dx * S, Y + dy * S))
         d.line(pts, fill=line, width=2)
-    for by in range(0, int(h_disp) + 1, cell):
+    for by in range(0, int(h_disp) + 1, cell_y):
         pts = []
         for X in range(0, W + 1, step):
             dx, dy = field.sample(X / S, by)
@@ -705,6 +789,7 @@ class Handwriter(HTMLParser):
     def _newline(self, h=None):
         if self.mode == 'gen':
             self.out.append('<br>')      # 换行由我方显式控制：行宽留余量，浏览器永不自行折行
+            self._line_tilt = self.rng.uniform(*[float(x) for x in C('glyph', 'line_tilt_deg', default=[0, 0])])
             self.cy += (h if h else EM * float(C('font', 'line_height', default=1.2))) + self.rng.uniform(-2.5, 2.5)
             self.cx = self.rng.uniform(0, 6)
             self.stats['lines'] = self.stats.get('lines', 0) + 1
@@ -740,6 +825,8 @@ class Handwriter(HTMLParser):
         for tok in tokens:
             if tok.isspace():
                 if self.mode == 'gen':
+                    if self.skip and '\n' in tok and self.rng.random() < float(C('emphasis', 'star_rate', default=0)):
+                        self.out.append(_star_img())
                     self.out.append(f'<span style="display:inline-block;width:{EM * 0.30:.1f}px"></span>')
                     self.cx += EM * 0.30
                 continue
@@ -788,7 +875,7 @@ class Handwriter(HTMLParser):
         if self.red:
             size *= float(j.get('red_boost', 1.16))
         dy = r.uniform(*j.get('dy_em', [-0.05, 0.05]))
-        rot = r.uniform(*j.get('rotate_deg', [-2.0, 2.0]))
+        rot = r.uniform(*j.get('rotate_deg', [-2.0, 2.0])) + getattr(self, '_line_tilt', 0)
         sx = r.uniform(*j.get('scale_x', [0.88, 1.12]))
         sy = r.uniform(*j.get('scale_y', [0.90, 1.10]))
         skx = r.uniform(*j.get('skew_deg', [-2.0, 2.0]))
@@ -811,12 +898,29 @@ class Handwriter(HTMLParser):
             if self.stats['fallback'] <= 8:
                 log(f"缺字跳过 {tok!r}（字体无此字，原样输出会变成问号方块）", "WARN")
             return ''
+        emph = ''
+        if self.red and not self.skip:
+            est = C('emphasis', 'style', default='none')
+            if est in ('highlight', 'wavy'):
+                ecols = [tuple(int(v) for v in c) for c in C('emphasis', 'colors', default=[[255, 235, 0]])]
+                ec = ecols[self.rng.randrange(len(ecols))]
+                vi = self.rng.randrange(3)
+                left = self.rng.uniform(-16, -8)
+                if est == 'highlight':
+                    emph = (f'<img class="hl" src="{_emph_png("hl", ec, vi).as_uri()}" '
+                            f'style="position:absolute;left:{left:.0f}%;top:{self.rng.uniform(4, 12):.0f}%;width:{self.rng.uniform(126, 138):.0f}%;">')
+                else:
+                    emph = (f'<img class="hl" src="{_emph_png("wavy", ec, vi).as_uri()}" '
+                            f'style="position:absolute;left:{left:.0f}%;top:{self.rng.uniform(62, 74):.0f}%;width:{self.rng.uniform(116, 130):.0f}%;">')
+                style += 'position:relative;'
         if strike:
             style += 'position:relative;'
             sl, st_, sw = self.rng.uniform(-16, -7), self.rng.uniform(33, 46), self.rng.uniform(118, 136)
             return (f'<span style="{style}"><img class="ch" src="{p.as_uri()}">'
                     f'<img class="strike" src="{strike.as_uri()}" '
                     f'style="position:absolute;left:{sl:.0f}%;top:{st_:.0f}%;width:{sw:.0f}%"></span>')
+        if emph:
+            return f'<span style="{style}">{emph}<img class="ch" src="{p.as_uri()}"></span>'
         return f'<span style="{style}"><img class="ch" src="{p.as_uri()}"></span>'
 
 def handwrite_html(body, seed, field):
@@ -977,7 +1081,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
     make_grid_png(grid_png, field, 658, 993, seed=str(md_path.name) + salt)   # 第一遍只为数页数，用小贴图
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), 993)
-    grid_div = '' if use_bg else (
+    grid_div = '' if (use_bg or not C('paper', 'grid_enabled', default=True)) else (
         f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
         f"background-image:url('{grid_png.as_uri()}');"
         f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
@@ -994,7 +1098,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         mh = f'min-height:{min_h}px;' if min_h else ''
         bg_css = (f"background-image:url('{Path(str(bg_img)).resolve().as_uri()}');"
                   f'background-size:100% 100%;background-repeat:no-repeat;') if use_bg \
-            else 'background-color:#ffffff;'
+            else 'background-color:rgb({},{},{});'.format(*[int(v) for v in C('paper', 'color', default=[255, 255, 255])])
         paper_style = (f'position:relative;overflow:hidden;{bg_css}{mh}'
                        f'padding:26px 30px;'
                        f'-webkit-transform:rotate({rot:.2f}deg) translate({tx:.0f}px,{ty:.0f}px) scale({sc:.3f});'

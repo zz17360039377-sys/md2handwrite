@@ -5,6 +5,8 @@
 #   ./generate.sh                     转换 笔记/ 目录下所有 .md
 #   ./generate.sh 我的笔记.md         转换指定文件（可多个）
 #   ./generate.sh --seed-salt v2      换一批随机笔误/弯曲/溅点
+#   ./generate.sh --template presets/tablet-grid.yaml   用指定配置模板生成
+#   （presets/：tablet-grid=平板格子风，cream-memo=米黄手帐风；原版=默认 config.yaml）
 # 全部输出与日志同步写入 logs/generate_时间戳.log
 # ============================================================
 set -u
@@ -49,6 +51,21 @@ fi
 # ---------- 3) 收集笔记 ----------
 shopt -s nullglob
 notes=()
+TEMPLATE=""
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --template) TEMPLATE="$2"; shift 2 ;;
+        --template=*) TEMPLATE="${1#*=}"; shift ;;
+        *) break ;;
+    esac
+done
+if [ -n "$TEMPLATE" ]; then
+    if [ -f "$TEMPLATE" ]; then
+        log "配置模板: $TEMPLATE"
+    else
+        log "[错误] 模板不存在: $TEMPLATE"; exit 1
+    fi
+fi
 if [ $# -gt 0 ]; then
     for f in "$@"; do
         if [ -f "$f" ]; then notes+=("$f")
@@ -64,7 +81,9 @@ fi
 log "待转换 ${#notes[@]} 份: ${notes[*]}"
 
 # ---------- 4) 生成（stdout+stderr 全部落日志）----------
-python3 -u md2handwrite.py "${notes[@]}" 2>&1 | tee -a "$LOG"
+TPL_ARGS=""
+[ -n "$TEMPLATE" ] && TPL_ARGS="-c $TEMPLATE"
+python3 -u md2handwrite.py $TPL_ARGS "${notes[@]}" 2>&1 | tee -a "$LOG"
 rc=${PIPESTATUS[0]}
 if [ "$rc" != 0 ]; then
     log "[错误] 生成失败（退出码 $rc），完整日志: $LOG"
