@@ -1050,7 +1050,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         log("输入内容为空，跳过", "WARN")
         return None
     lr = random.Random(str(md_path.name) + salt + 'layout')
-    tilt = lr.uniform(-0.5, 0.5)           # 整页倾斜：由弯曲场剪切实现（网格与文字一起斜，无裁剪）
+    tilt = lr.uniform(*[float(x) for x in C('paper', 'tilt_deg', default=[-0.5, 0.5])])   # 整页微倾（平板模板置 0）
     field = WarpField(str(md_path.name) + salt, tilt_deg=tilt)
     rot = lr.uniform(-0.35, 0.35)          # 容器仅微旋（大角度会让底部文字平移出纸面被裁）
     tx = lr.uniform(-18, 8)
