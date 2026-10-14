@@ -138,7 +138,8 @@ def _resolve_font(rel):
 FONT_PATH = _resolve_font(C('font', 'path', default='KaiXinJiuXiaoLinYuJiuZou-2.ttf'))
 CHAR_DIR = SCRIPT_DIR / 'assets' / 'chars'
 ASSETS = SCRIPT_DIR / 'assets'
-WM_PNG = SCRIPT_DIR / C('watermark', default='assets/cs_watermark.png') if not Path(C('watermark', default='')).is_absolute() else Path(C('watermark'))
+_wm_cfg = C('watermark', default='assets/cs_watermark.png')
+WM_PNG = ((SCRIPT_DIR / _wm_cfg) if not Path(_wm_cfg).is_absolute() else Path(_wm_cfg)) if _wm_cfg else None
 SIGN_PAGES = {int(p) for p in C('signature', 'pages', default=[1])}
 SIGN_H = float(C('signature', 'height_pt', default=62))               # 签名高度（pt），宽度按原图比例
 SIGN_OVERRIDE = False                                                 # --sign 命令行强制开启
@@ -218,22 +219,26 @@ def _make_emphasis_png(kind, color, idx):
     from PIL import Image, ImageFilter
     rng = random.Random(f'{kind}{color}{idx}')
     r, g, b = color
-    if kind == 'hl':                                   # 荧光笔色带：上下边缘波浪、微微斜
+    if kind == 'hl':                                   # 荧光笔色带：特别粗（近满字高）、歪歪扭扭
         from PIL import ImageDraw
-        W, H = 360, 110
+        W, H = 360, 150
         im = Image.new('L', (W, H), 0)
         d = ImageDraw.Draw(im)
-        amp, ph1, ph2 = rng.uniform(5, 11), rng.uniform(0, 6.3), rng.uniform(0, 6.3)
-        f1, f2 = rng.uniform(1.1, 2.1), rng.uniform(1.1, 2.1)
-        tilt = rng.uniform(-0.06, 0.06) * W
+        amp1, amp2 = rng.uniform(8, 14), rng.uniform(9, 15)
+        ph1, ph2 = rng.uniform(0, 6.3), rng.uniform(0, 6.3)
+        f1, f2 = rng.uniform(1.0, 1.9), rng.uniform(1.2, 2.3)
+        f1b, f2b = rng.uniform(2.6, 3.8), rng.uniform(2.8, 4.2)
+        tilt = rng.uniform(-0.09, 0.09) * W
         top, bot = [], []
-        for x in range(0, W + 1, 4):
+        for x in range(0, W + 1, 3):
             t = x / W
             ym = H * 0.5 + tilt * (t - 0.5)
-            top.append((x, ym - H * 0.26 + amp * math.sin(ph1 + t * 6.28 * f1) + rng.uniform(-1.5, 1.5)))
-            bot.append((x, ym + H * 0.26 + amp * math.sin(ph2 + t * 6.28 * f2) + rng.uniform(-1.5, 1.5)))
+            top.append((x, ym - H * 0.34 + amp1 * math.sin(ph1 + t * 6.28 * f1)
+                        + amp1 * 0.45 * math.sin(ph1 * 2.3 + t * 6.28 * f1b) + rng.uniform(-2, 2)))
+            bot.append((x, ym + H * 0.34 + amp2 * math.sin(ph2 + t * 6.28 * f2)
+                        + amp2 * 0.45 * math.sin(ph2 * 2.1 + t * 6.28 * f2b) + rng.uniform(-2, 2)))
         d.polygon(top + bot[::-1], fill=255)
-        im = im.filter(ImageFilter.GaussianBlur(2.2))
+        im = im.filter(ImageFilter.GaussianBlur(2.6))
     elif kind == 'wavy':                               # 手绘波浪线（下划位置）
         from PIL import ImageDraw
         W, H = 360, 90
@@ -249,25 +254,45 @@ def _make_emphasis_png(kind, color, idx):
         for i in range(len(pts) - 1):
             d.line([pts[i], pts[i + 1]], fill=255, width=th)
         im = im.filter(ImageFilter.GaussianBlur(1.2))
-    else:                                              # 手绘五角星：顶点抖动 + 圆头粗描
+    else:                                              # 手绘五角星：大、每笔带弓弯不直、笔画线头外溢
         from PIL import ImageDraw
-        W = H = 240
+        W = H = 280
         im = Image.new('L', (W, H), 0)
         d = ImageDraw.Draw(im)
-        cx, cy, R = W / 2, H / 2, rng.uniform(80, 95)
+        cx, cy, R = W / 2, H / 2, rng.uniform(105, 118)
         rot0 = rng.uniform(0, 6.28)
         pts = []
         for k in range(5):
-            ang = rot0 + k * 4 * math.pi / 5 + rng.uniform(-0.09, 0.09)
-            rr = R * rng.uniform(0.88, 1.0)
+            ang = rot0 + k * 4 * math.pi / 5 + rng.uniform(-0.11, 0.11)
+            rr = R * rng.uniform(0.86, 1.0)
             pts.append((cx + rr * math.sin(ang), cy - rr * math.cos(ang)))
-        th = rng.choice([9, 10, 11])
+        th = rng.choice([8, 9, 10])
+
+        def bowed(p0, p1):
+            """一笔：两端各外延 14%（线头）+ 垂直弓弯（不直）+ 圆头"""
+            L = math.hypot(p1[0] - p0[0], p1[1] - p0[1])
+            ux, uy = (p1[0] - p0[0]) / L, (p1[1] - p0[1]) / L
+            nx, ny = -uy, ux
+            bow = rng.uniform(-6.5, 6.5)
+            ext0 = rng.uniform(0.10, 0.18) * L
+            ext1 = rng.uniform(0.10, 0.18) * L
+            pts = []
+            for t in range(0, 21):
+                tt = -ext0 / L + (1 + ext0 / L + ext1 / L) * t / 20
+                bx, by = p0[0] + (p1[0] - p0[0]) * tt, p0[1] + (p1[1] - p0[1]) * tt
+                sag = bow * (tt * (1 - tt)) * 4
+                pts.append((bx + nx * sag, by + ny * sag))
+            return pts
+
         seq = pts + [pts[0]]
+        th = rng.choice([8, 9, 10])
         for i in range(5):
-            d.line([seq[i], seq[i + 1]], fill=255, width=th)
-            for (qx, qy) in (seq[i], seq[i + 1]):
-                d.ellipse([qx - th / 2, qy - th / 2, qx + th / 2, qy + th / 2], fill=255)
-        im = im.filter(ImageFilter.GaussianBlur(1.0))
+            seg = bowed(seq[i], seq[i + 1])
+            for k in range(len(seg) - 1):
+                d.line([seg[k], seg[k + 1]], fill=255, width=th)
+            for q in (seg[0], seg[-1]):
+                d.ellipse([q[0] - th / 2, q[1] - th / 2, q[0] + th / 2, q[1] + th / 2], fill=255)
+        im = im.filter(ImageFilter.GaussianBlur(1.2))
     hx = ''.join(f'{min(255, max(0, int(v))):02x}' for v in color)
     path = CHAR_DIR / f'{kind}_{hx}_{idx}.png'
     col = Image.new('RGBA', im.size, (r, g, b, 0))
@@ -286,7 +311,7 @@ def _star_img():
     """代码块行首的荧光五角星（随机颜色/形状）"""
     colors = [tuple(c) for c in C('emphasis', 'star_colors', default=C('emphasis', 'colors', default=[[255, 235, 0]]))]
     col = _rng_choice(colors)
-    return f'<img class="star" src="{_emph_png("star", col, random.Random(str(col)).randrange(3)).as_uri()}" style="display:inline-block;height:1.12em;width:auto;vertical-align:-0.08em;margin:0 3px">'
+    return f'<img class="star" src="{_emph_png("star", col, random.Random(str(col)).randrange(3)).as_uri()}" style="display:inline-block;height:2.2em;width:auto;vertical-align:-0.25em;margin:0 4px">'
 
 def _rng_choice(seq):
     return random.Random(random.Random().randrange(1 << 30)).choice(seq)
@@ -905,10 +930,10 @@ class Handwriter(HTMLParser):
                 ecols = [tuple(int(v) for v in c) for c in C('emphasis', 'colors', default=[[255, 235, 0]])]
                 ec = ecols[self.rng.randrange(len(ecols))]
                 vi = self.rng.randrange(3)
-                left = self.rng.uniform(-16, -8)
+                left = self.rng.uniform(-20, -12)
                 if est == 'highlight':
                     emph = (f'<img class="hl" src="{_emph_png("hl", ec, vi).as_uri()}" '
-                            f'style="position:absolute;left:{left:.0f}%;top:{self.rng.uniform(4, 12):.0f}%;width:{self.rng.uniform(126, 138):.0f}%;">')
+                            f'style="position:absolute;left:{left:.0f}%;top:{self.rng.uniform(-5, 3):.0f}%;width:{self.rng.uniform(138, 152):.0f}%;">')
                 else:
                     emph = (f'<img class="hl" src="{_emph_png("wavy", ec, vi).as_uri()}" '
                             f'style="position:absolute;left:{left:.0f}%;top:{self.rng.uniform(62, 74):.0f}%;width:{self.rng.uniform(116, 130):.0f}%;">')
@@ -993,15 +1018,19 @@ def stamp_overlay(pdf_file: Path):
     buf = io.BytesIO()
     c = canvas.Canvas(buf, pagesize=(w, h))
     for i in range(len(reader.pages)):
-        if WM_PNG.exists():
+        if WM_PNG and WM_PNG.exists():
             c.drawImage(str(WM_PNG), wm_x, wm_y, wm_w, wm_h)
             c.setStrokeColor(Color(0.65, 0.65, 0.65))
             c.setLineWidth(1.5)
             c.setDash(4, 3)
             c.rect(wm_x - 6, wm_y - 6, wm_w + 12, wm_h + 12)
-            c.setFont(C('page_number_font', default='Helvetica'), 13)
-            c.setFillColorRGB(0.1, 0.1, 0.1)
+        # 页码恒印（水印可缺）
+        c.setFont(C('page_number_font', default='Helvetica'), 13)
+        c.setFillColorRGB(0.1, 0.1, 0.1)
+        if WM_PNG and WM_PNG.exists():
             c.drawRightString(wm_x - 16, wm_y + 14, str(i + 1))
+        else:
+            c.drawRightString(w - margin - 10, margin + 14, str(i + 1))
         # 手写签名：第一页右上角，随机大小/位置/角度，像随手签的
         if sig_im and (i + 1) in SIGN_PAGES:
             from reportlab.lib.utils import ImageReader
@@ -1079,12 +1108,42 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
     ASSETS.mkdir(parents=True, exist_ok=True)
     grid_png = ASSETS / f'grid_{md_path.stem}.png'
     noise_png = ASSETS / f'noise_{md_path.stem}.png'
-    make_grid_png(grid_png, field, 658, 993, seed=str(md_path.name) + salt)   # 第一遍只为数页数，用小贴图
+
+    _flat_grid = False
+    def _grid_for_height(n_pages):
+        """纯平网格（场无弯曲+无阴影带）：生成一张超大整体网格底图并按需裁剪，
+        完全不拼接、不逐文档重画 —— 接缝在机制上不可能出现。
+        非纯平（有弯曲/阴影带）仍按文档高度现画。"""
+        h_need = n_pages * 993 - 12
+        flat = (float(C('paper', 'field', default={'amp': 20}).get('amp', 20)) == 0
+                and list(map(int, C('paper', 'bands', default={}).get('count', [1, 2]))) == [0, 0]
+                and not use_bg)
+        nonlocal _flat_grid
+        if not flat:
+            make_grid_png(grid_png, field, 658, h_need, seed=str(md_path.name) + salt)
+            return
+        cx = int(C('paper', 'grid_cell_x', default=C('paper', 'grid_cell', default=24)))
+        cy = int(C('paper', 'grid_cell_y', default=cx))
+        col = str(C('paper', 'grid_line', default='#d9d9d9'))
+        key = hashlib.md5(f'{cx}|{cy}|{col}'.encode()).hexdigest()[:10]
+        big = ASSETS / f'grid_big_{key}.png'
+        crop_h = (h_need // cy + 2) * cy        # 裁剪高度取格距整数倍 → 纵向平铺无缝
+        need2 = (crop_h + 400) * 2
+        from PIL import Image as _PILImage
+        if not big.exists() or _PILImage.open(big).height < need2:
+            make_grid_png(big, field, 658, max(20000, crop_h + 400) + cy, seed='gridbig')
+        _PILImage.open(big).crop((0, 0, 658 * 2, crop_h * 2)).save(grid_png)
+        return True
+
     make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), 993)
-    grid_div = '' if (use_bg or not C('paper', 'grid_enabled', default=True)) else (
-        f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
-        f"background-image:url('{grid_png.as_uri()}');"
-        f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
+    if use_bg or not C('paper', 'grid_enabled', default=True):
+        grid_div = ''
+    else:
+        _gs = '658px auto' if _flat_grid else '100% 100%'
+        _sr = 'repeat-y' if _flat_grid else 'no-repeat'
+        grid_div = (f'<div style="position:absolute;z-index:-1;top:0;left:0;right:0;bottom:0;'
+                    f"background-image:url('{grid_png.as_uri()}');"
+                    f'background-size:{_gs};background-repeat:{_sr};"></div>')
     noise_div = (f'<div style="position:absolute;z-index:-2;top:0;left:0;right:0;bottom:0;'
                  f"background-image:url('{noise_png.as_uri()}');"
                  f'background-size:100% 100%;background-repeat:no-repeat;"></div>')
@@ -1132,7 +1191,7 @@ def convert(md_path: Path, out_dir: Path, salt: str = '', stamp: bool = True):
         subprocess.run(cmd_base + [str(html_file), str(pdf_file)], check=True, cwd=str(md_path.parent))
         n = len(_R(str(pdf_file)).pages)
         log(f"首遍渲染 {n} 页")
-        make_grid_png(grid_png, field, 658, n * 993 - 12, seed=str(md_path.name) + salt)
+        _grid_for_height(n)
         make_noise_png(noise_png, str(md_path.name) + salt, int(C('paper', 'width', default=658)), n * 993 - 12)
         # 阴影带 div：每页各自的随机带（只生成实际存在页面的）
         band_html = ''.join(
@@ -1199,6 +1258,8 @@ def main():
         TYPO_RATE = float(C('typos', 'rate', default=0.008))
         TYPO_ON = bool(C('typos', 'enabled', default=True))
         FONT_PATH = SCRIPT_DIR / C('font', 'path', default='')
+        _wm_cfg = C('watermark', default='assets/cs_watermark.png')
+        WM_PNG = ((SCRIPT_DIR / _wm_cfg) if not Path(_wm_cfg).is_absolute() else Path(_wm_cfg)) if _wm_cfg else None
         CSS = build_css()
     out_dir = Path(args.out) if args.out else SCRIPT_DIR / C('output_dir', default='手写版')
     out_dir.mkdir(exist_ok=True)

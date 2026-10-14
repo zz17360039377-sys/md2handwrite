@@ -50,6 +50,8 @@ paper:
     grain_enabled: false
     stains: { count: [0, 0] }
 
+watermark: ''                           # 模板不使用扫描水印（页码保留）
+
 page:
   margins_mm: { top: 16, bottom: 18, left: 18, right: 18 }
   wrap_x: 600
